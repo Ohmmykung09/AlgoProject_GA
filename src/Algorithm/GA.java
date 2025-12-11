@@ -109,7 +109,7 @@ public class GA {
                         break;
                     }
                 } else {
-                    break; // Hit wall
+                    continue; // Hit wall
                 }
             }
 
