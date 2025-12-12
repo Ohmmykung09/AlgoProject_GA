@@ -23,11 +23,6 @@ public class Main {
 
         loadAndParseMap(mapFile);
 
-        // 2. Generate Heatmap (Crucial for GA Speed)
-        System.out.println("Generating Navigation Heatmap...");
-        createDistanceMap();
-        System.out.println("Heatmap Generated!");
-
         System.out.println("\n" + "=".repeat(60));
         System.out.println(" STARTING ALGORITHM COMPARISON (JAVA) ");
         System.out.println("=".repeat(60));
@@ -35,7 +30,7 @@ public class Main {
         // 3. Run Algorithms
         // --- GA ---
         System.out.println("\nRunning GA (Hybrid)...");
-        GA ga = new GA(GRID, DIST_MAP, ROWS, COLS, START, GOAL);
+        GA ga = new GA(GRID, ROWS, COLS, START, GOAL);
         GA.Result gaResult = ga.run();
 
         // --- Dijkstra ---
@@ -178,38 +173,13 @@ public class Main {
                 if (c < row.size())
                     GRID[r][c] = row.get(c);
                 else
-                    GRID[r][c] = -1; // Padding
+                    GRID[r][c] = -1;
             }
         }
         System.out.println("Map Size: " + ROWS + "x" + COLS);
     }
 
-    private static void createDistanceMap() {
-        DIST_MAP = new int[ROWS][COLS];
-        for (int[] row : DIST_MAP)
-            Arrays.fill(row, 999999);
-
-        Queue<int[]> queue = new LinkedList<>();
-        queue.add(GOAL);
-        DIST_MAP[GOAL[0]][GOAL[1]] = 0;
-
-        while (!queue.isEmpty()) {
-            int[] curr = queue.poll();
-            int r = curr[0], c = curr[1];
-            int currentDist = DIST_MAP[r][c];
-
-            for (int[] move : MOVES) {
-                int nr = r + move[0];
-                int nc = c + move[1];
-                if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {
-                    if (GRID[nr][nc] != -1 && DIST_MAP[nr][nc] > currentDist + 1) {
-                        DIST_MAP[nr][nc] = currentDist + 1;
-                        queue.add(new int[] { nr, nc });
-                    }
-                }
-            }
-        }
-    }
+    
 
     private static void printSummary(GA.Result ga, Dijkstra.Result dij, A_star.Result astar) {
         System.out.println("\n" + "=".repeat(75));
