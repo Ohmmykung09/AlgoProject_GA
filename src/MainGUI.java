@@ -375,7 +375,8 @@ public class MainGUI extends JFrame {
                 // ถ้ายังไม่แก้ ให้ใช้ Constructor เดิม: new GA(grid, rows, cols, start, goal);
                 GA ga = new GA(grid, rows, cols, start, goal);
 
-                // TODO: ถ้าแก้ GA.java แล้ว ให้ใช้บรรทัดล่างนี้แทน
+                // TODO: ถ้าแก้ GA.java แล้ว
+                // ให้ใช้บรรทัดล่างนี้แทน
                 ga.setParameters(settingPopSize, settingGenerations, settingElitism, settingMutation);
 
                 ga.setCallback((path, gen, cost, status) -> {

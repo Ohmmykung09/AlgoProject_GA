@@ -4,19 +4,23 @@ import java.util.*;
 
 public class GA {
 
-    // insert data
     private int[][] grid;
     private int rows, cols;
     private Point startPos, endPos;
 
-    // Settings
-    private int maxIterations = 2000;
+    // GA Parameters
+    private int populationSize = 50;
+    private int maxGenerations = 2000;
+    private double mutationRate = 0.1;
     private double initialTemp = 1000.0;
+    private double coolingRate = 0.98;
 
-    // Callback
     private StepCallback callback;
 
-    // CONSTRUCTOR & SETUP
+    static final int NUM_WAYPOINTS = 10; // Gene length
+    static final int PENALTY_COST = 10000;
+    static Random random = new Random();
+
     public GA(int[][] grid, int rows, int cols, int[] start, int[] goal) {
         this.grid = grid;
         this.rows = rows;
@@ -26,7 +30,9 @@ public class GA {
     }
 
     public void setParameters(int popSize, int generations, int elitism, double mutation) {
-        this.maxIterations = generations;
+        this.populationSize = popSize;
+        this.maxGenerations = generations;
+        this.mutationRate = mutation;
     }
 
     public interface StepCallback {
@@ -43,65 +49,77 @@ public class GA {
         public double timeTaken;
     }
 
-    // Simulated Annealing + BFS
-    static final int NUM_WAYPOINTS = 12;
-    static final double COOLING_RATE = 0.996;
-    static final double MIN_TEMP = 0.1;
-    static Random random = new Random();
+    // CORE LOGIC
 
     public Result run() {
         long startTime = System.nanoTime();
 
-        Solution currentSol = new Solution();
-        currentSol.evaluate();
+        // Initialization
+        List<Individual> population = new ArrayList<>();
+        for (int i = 0; i < populationSize; i++) {
+            Individual ind = new Individual();
+            ind.randomize();
+            ind.calculateFitness();
+            population.add(ind);
+        }
 
-        Solution bestSol = new Solution(currentSol.waypoints);
-        bestSol.totalCost = currentSol.totalCost;
+        // Hall of Fame
+        Individual hallOfFame = getBest(population);
 
-        double temp = initialTemp;
-        int iteration = 0;
+        Individual bestEver = new Individual(hallOfFame.waypoints);
+        bestEver.totalCost = hallOfFame.totalCost;
+        hallOfFame = bestEver;
 
-        while (temp > MIN_TEMP && iteration < maxIterations) {
-            int iterationsPerTemp = 30;
-            for (int i = 0; i < iterationsPerTemp; i++) {
-                // Create Neighbor
-                Solution newSol = new Solution(currentSol.waypoints);
+        double currentTemp = initialTemp;
 
-                // Random Move Logic
-                int idx = random.nextInt(NUM_WAYPOINTS);
-                Point oldP = newSol.waypoints.get(idx);
+        // Main Loop
+        for (int gen = 0; gen < maxGenerations; gen++) {
 
-                int moveRange = (int) (5 + (temp * 0.05));
-                int nr = oldP.r + (random.nextInt(moveRange * 2) - moveRange);
-                int nc = oldP.c + (random.nextInt(moveRange * 2) - moveRange);
+            List<Individual> newPopulation = new ArrayList<>();
 
-                nr = Math.max(0, Math.min(rows - 1, nr));
-                nc = Math.max(0, Math.min(cols - 1, nc));
+            // Keep Hall of Fame
+            Individual elite = new Individual(hallOfFame.waypoints);
+            elite.totalCost = hallOfFame.totalCost;
+            newPopulation.add(elite);
 
-                if (grid[nr][nc] != -1) {
-                    newSol.waypoints.set(idx, new Point(nr, nc));
-                }
+            // Evolution Loop
+            while (newPopulation.size() < populationSize) {
+                // Selection
+                Individual p1 = tournamentSelect(population);
+                Individual p2 = tournamentSelect(population);
 
-                newSol.evaluate();
+                // Crossover
+                Individual child = crossover(p1, p2);
 
-                // Accept / Reject
-                int delta = newSol.totalCost - currentSol.totalCost;
-                if (delta < 0 || Math.random() < Math.exp(-delta / temp)) {
-                    currentSol = newSol;
-                    if (currentSol.totalCost < bestSol.totalCost) {
-                        bestSol = new Solution(currentSol.waypoints);
-                        bestSol.totalCost = currentSol.totalCost;
-                    }
-                }
+                // Mutation with SA Logic
+                mutateWithSA(child, currentTemp);
+
+                // Calculate Fitness
+                child.calculateFitness();
+                newPopulation.add(child);
             }
 
-            temp *= COOLING_RATE;
-            iteration++;
+            // Update Population
+            population = newPopulation;
 
-            // SEND UPDATE TO GUI
+            // Update Hall of Fame
+            Individual currentBest = getBest(population);
+            if (currentBest.totalCost < hallOfFame.totalCost) {
+                hallOfFame = new Individual(currentBest.waypoints);
+                hallOfFame.totalCost = currentBest.totalCost;
+            }
+
+            // Cooling
+            currentTemp *= coolingRate;
+            if (currentTemp < 0.1)
+                currentTemp = 0.1;
+
+            // Callback
             if (callback != null) {
-                List<int[]> visualPath = reconstructPath(bestSol.waypoints);
-                callback.onStep(visualPath, iteration, bestSol.totalCost, String.format("Temp: %.2f", temp));
+                List<int[]> visualPath = reconstructPath(hallOfFame.waypoints);
+                String status = String.format("Gen: %d | Temp: %.1f | Best: %d", gen, currentTemp,
+                        hallOfFame.totalCost);
+                callback.onStep(visualPath, gen, hallOfFame.totalCost, status);
             }
 
             try {
@@ -112,122 +130,94 @@ public class GA {
 
         // Final Result
         Result res = new Result();
-        res.path = reconstructPath(bestSol.waypoints);
-        res.cost = bestSol.totalCost;
+        res.path = reconstructPath(hallOfFame.waypoints);
+        res.cost = hallOfFame.totalCost;
         res.timeTaken = (System.nanoTime() - startTime) / 1_000_000_000.0;
         return res;
     }
 
-    // ==========================================
-    // HELPER METHODS (BFS IMPLEMENTATION)
-
-    private List<int[]> reconstructPath(List<Point> waypoints) {
-        List<int[]> fullPath = new ArrayList<>();
-        Point current = startPos;
-        List<Point> targets = new ArrayList<>(waypoints);
-        targets.add(endPos);
-
-        for (Point target : targets) {
-            List<Point> segment = getPathBetween(current, target);
-            for (Point p : segment) {
-                fullPath.add(new int[] { p.r, p.c });
-            }
-            if (!segment.isEmpty()) {
-                current = target;
+    // Helper
+    private Individual tournamentSelect(List<Individual> pop) {
+        int tournamentSize = 5;
+        Individual best = null;
+        for (int i = 0; i < tournamentSize; i++) {
+            Individual randInd = pop.get(random.nextInt(pop.size()));
+            if (best == null || randInd.totalCost < best.totalCost) {
+                best = randInd;
             }
         }
-        return fullPath;
+        return best;
     }
 
-    // BFS
-    private List<Point> getPathBetween(Point s, Point e) {
-        if (s.equals(e))
-            return new ArrayList<>();
+    // Feature: Crossover
+    private Individual crossover(Individual p1, Individual p2) {
+        List<Point> childWP = new ArrayList<>();
+        // Single Point Crossover
+        int cutPoint = random.nextInt(NUM_WAYPOINTS);
 
-        Queue<Point> queue = new LinkedList<>();
-        boolean[][] visited = new boolean[rows][cols];
-        Point[][] parent = new Point[rows][cols];
-
-        queue.add(s);
-        visited[s.r][s.c] = true;
-
-        int[][] dirs = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } };
-
-        while (!queue.isEmpty()) {
-            Point current = queue.poll();
-
-            if (current.equals(e)) {
-                List<Point> path = new ArrayList<>();
-                Point curr = e;
-                while (curr != null && !curr.equals(s)) {
-                    path.add(curr);
-                    curr = parent[curr.r][curr.c];
-                }
-                path.add(s);
-                Collections.reverse(path);
-                return path;
-            }
-
-            for (int[] d : dirs) {
-                int nr = current.r + d[0];
-                int nc = current.c + d[1];
-
-                if (nr >= 0 && nr < rows && nc >= 0 && nc < cols
-                        && grid[nr][nc] != -1
-                        && !visited[nr][nc]) {
-
-                    visited[nr][nc] = true;
-                    parent[nr][nc] = current;
-                    queue.add(new Point(nr, nc));
-                }
+        for (int i = 0; i < NUM_WAYPOINTS; i++) {
+            if (i < cutPoint) {
+                Point p = p1.waypoints.get(i);
+                childWP.add(new Point(p.r, p.c));
+            } else {
+                Point p = p2.waypoints.get(i);
+                childWP.add(new Point(p.r, p.c));
             }
         }
-        return new ArrayList<>();
+        return new Individual(childWP);
     }
 
-    // BFS Return int
-    private int runBFSCost(Point start, Point end) {
-        if (start.equals(end))
-            return 0;
+    // Temp + Penalty
+    private void mutateWithSA(Individual ind, double temp) {
+        if (random.nextDouble() > mutationRate)
+            return;
 
-        Queue<Point> queue = new LinkedList<>();
-        int[][] dist = new int[rows][cols];
-        for (int[] row : dist)
-            Arrays.fill(row, -1);
+        // Mutation
+        int idx = random.nextInt(NUM_WAYPOINTS);
+        Point oldP = ind.waypoints.get(idx);
 
-        queue.add(start);
-        dist[start.r][start.c] = 0;
+        // if hot make it far
+        int moveRange = (int) (2 + (temp * 0.02));
+        int nr = oldP.r + (random.nextInt(moveRange * 2 + 1) - moveRange);
+        int nc = oldP.c + (random.nextInt(moveRange * 2 + 1) - moveRange);
 
-        int[][] dirs = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } };
+        nr = Math.max(0, Math.min(rows - 1, nr));
+        nc = Math.max(0, Math.min(cols - 1, nc));
 
-        while (!queue.isEmpty()) {
-            Point current = queue.poll();
+        // Penalty Logic 1
+        if (grid[nr][nc] == -1) {
+            // change coordinate
+            ind.waypoints.set(idx, new Point(nr, nc));
+        } else {
+            ind.waypoints.set(idx, new Point(nr, nc));
+        }
+    }
 
-            if (current.equals(end)) {
-                return dist[current.r][current.c];
-            }
-
-            for (int[] d : dirs) {
-                int nr = current.r + d[0];
-                int nc = current.c + d[1];
-
-                if (nr >= 0 && nr < rows && nc >= 0 && nc < cols
-                        && grid[nr][nc] != -1
-                        && dist[nr][nc] == -1) {
-
-                    dist[nr][nc] = dist[current.r][current.c] + grid[nr][nc];
-                    queue.add(new Point(nr, nc));
-                }
+    private Individual getBest(List<Individual> pop) {
+        Individual best = pop.get(0);
+        for (Individual ind : pop) {
+            if (ind.totalCost < best.totalCost) {
+                best = ind;
             }
         }
-        return 100_000;
+        return best;
     }
 
-    class Solution {
+    // INDIVIDUAL
+    class Individual {
         List<Point> waypoints = new ArrayList<>();
-        int totalCost = 0;
+        int totalCost = Integer.MAX_VALUE;
 
-        public Solution() {
+        public Individual() {
+        }
+
+        public Individual(List<Point> wp) {
+            for (Point p : wp)
+                this.waypoints.add(new Point(p.r, p.c));
+        }
+
+        public void randomize() {
+            waypoints.clear();
             for (int i = 0; i < NUM_WAYPOINTS; i++) {
                 int r, c;
                 do {
@@ -238,29 +228,35 @@ public class GA {
             }
         }
 
-        public Solution(List<Point> wp) {
-            for (Point p : wp)
-                this.waypoints.add(new Point(p.r, p.c));
-        }
-
-        public void evaluate() {
+        // Penalty & BFS
+        public void calculateFitness() {
             int currentCost = 0;
             Point currentPos = startPos;
             List<Point> fullRoute = new ArrayList<>(this.waypoints);
             fullRoute.add(endPos);
 
             for (Point target : fullRoute) {
+                // Penalty 1
                 if (grid[target.r][target.c] == -1) {
-                    currentCost += 5000;
+                    currentCost += PENALTY_COST;
                 } else {
-                    // เรียกใช้ BFS Cost แทน Dijkstra
-                    currentCost += runBFSCost(currentPos, target);
-                    currentPos = target;
+                    // BFS find cost
+                    int segmentCost = runBFSCost(currentPos, target);
+
+                    // Penalty 2
+                    if (segmentCost >= 100_000) {
+                        currentCost += PENALTY_COST;
+                    } else {
+                        currentCost += segmentCost;
+                    }
                 }
+                currentPos = target;
             }
             this.totalCost = currentCost;
         }
     }
+
+    // BFS & UTILS
 
     static class Point {
         int r, c;
@@ -269,20 +265,98 @@ public class GA {
             this.r = r;
             this.c = c;
         }
+    }
 
-        @Override
-        public boolean equals(Object o) {
-            if (this == o)
-                return true;
-            if (o == null || getClass() != o.getClass())
-                return false;
-            Point p = (Point) o;
-            return r == p.r && c == p.c;
+    // BFS Cost Calculation
+    private int runBFSCost(Point start, Point end) {
+        if (start.r == end.r && start.c == end.c)
+            return 0;
+
+        boolean[][] visited = new boolean[rows][cols];
+        Queue<int[]> q = new LinkedList<>();
+
+        q.add(new int[] { start.r, start.c, 0 });
+        visited[start.r][start.c] = true;
+
+        int[][] dirs = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } };
+
+        while (!q.isEmpty()) {
+            int[] curr = q.poll();
+            int r = curr[0];
+            int c = curr[1];
+            int cost = curr[2];
+
+            if (r == end.r && c == end.c)
+                return cost;
+
+            for (int[] d : dirs) {
+                int nr = r + d[0];
+                int nc = c + d[1];
+
+                if (nr >= 0 && nr < rows && nc >= 0 && nc < cols
+                        && !visited[nr][nc] && grid[nr][nc] != -1) {
+                    visited[nr][nc] = true;
+                    int moveCost = grid[nr][nc] > 0 ? grid[nr][nc] : 1;
+                    q.add(new int[] { nr, nc, cost + moveCost });
+                }
+            }
+        }
+        return 100_000; // Unreachable
+    }
+
+    private List<int[]> reconstructPath(List<Point> waypoints) {
+        List<int[]> fullPath = new ArrayList<>();
+        Point current = startPos;
+        List<Point> targets = new ArrayList<>(waypoints);
+        targets.add(endPos);
+
+        for (Point target : targets) {
+            List<int[]> segment = getPathPoints(current, target);
+            fullPath.addAll(segment);
+            if (!segment.isEmpty())
+                current = target;
+        }
+        return fullPath;
+    }
+
+    private List<int[]> getPathPoints(Point s, Point e) {
+        if (s.r == e.r && s.c == e.c)
+            return new ArrayList<>();
+
+        Queue<Point> q = new LinkedList<>();
+        Point[][] parent = new Point[rows][cols];
+        boolean[][] visited = new boolean[rows][cols];
+
+        q.add(s);
+        visited[s.r][s.c] = true;
+        int[][] dirs = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } };
+
+        while (!q.isEmpty()) {
+            Point curr = q.poll();
+            if (curr.r == e.r && curr.c == e.c)
+                break;
+
+            for (int[] d : dirs) {
+                int nr = curr.r + d[0];
+                int nc = curr.c + d[1];
+                if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && !visited[nr][nc] && grid[nr][nc] != -1) {
+                    visited[nr][nc] = true;
+                    parent[nr][nc] = curr;
+                    q.add(new Point(nr, nc));
+                }
+            }
         }
 
-        @Override
-        public int hashCode() {
-            return Objects.hash(r, c);
+        List<int[]> path = new ArrayList<>();
+        Point curr = e;
+        while (curr != null && (curr.r != s.r || curr.c != s.c)) {
+            path.add(new int[] { curr.r, curr.c });
+            curr = parent[curr.r][curr.c];
         }
+        if (path.size() > 0) {
+            path.add(new int[] { s.r, s.c });
+            Collections.reverse(path);
+        }
+        return path;
     }
 }
