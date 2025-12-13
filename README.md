@@ -3,11 +3,11 @@
 # Window
 
 ```
-javac -d bin -sourcepath src src/Main.java src/Algorithm/*.java
+javac -d bin -sourcepath src src/*.java
 ```
 
 ```
-java -cp bin Main
+java -cp bin MainGUI
 ```
 
 # Linux / macOS:

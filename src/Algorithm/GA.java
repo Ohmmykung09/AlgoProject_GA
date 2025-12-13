@@ -3,195 +3,330 @@ package Algorithm;
 import java.util.*;
 
 public class GA {
-    private int[][] GRID;
-    private int[][] DIST_MAP;
-    private int ROWS, COLS;
-    private int[] START, GOAL;
-    private final int[][] MOVES = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } };
 
-    // Parameters
-    private final int POPULATION_SIZE = 500;
-    private final int GENOME_LENGTH = 1500;
-    private final int GENERATIONS = 1000;
-    private final int ELITISM_COUNT = 20;
+    // ==========================================
+    // 1. DATA FROM GUI
+    // ==========================================
+    private int[][] grid;
+    private int rows, cols;
+    private Point startPos, endPos;
 
-    private Random rand = new Random();
+    // Settings (Map จาก GUI มาใช้กับ SA)
+    private int maxIterations = 2000; // เทียบเท่า Generations
+    private double initialTemp = 1000.0;
 
-    public GA(int[][] grid, int[][] distMap, int rows, int cols, int[] start, int[] goal) {
-        this.GRID = grid;
-        this.DIST_MAP = distMap;
-        this.ROWS = rows;
-        this.COLS = cols;
-        this.START = start;
-        this.GOAL = goal;
+    // Callback สำหรับส่งข้อมูลกลับไป GUI
+    private StepCallback callback;
+
+    // ==========================================
+    // 2. CONSTRUCTOR & SETUP
+    // ==========================================
+
+    // Constructor ที่ GUI จะเรียกใช้
+    public GA(int[][] grid, int rows, int cols, int[] start, int[] goal) {
+        this.grid = grid;
+        this.rows = rows;
+        this.cols = cols;
+        // แปลง int[] เป็น Point ของเรา
+        this.startPos = new Point(start[0], start[1]);
+        this.endPos = new Point(goal[0], goal[1]);
     }
 
+    // รับค่า Settings จาก GUI
+    public void setParameters(int popSize, int generations, int elitism, double mutation) {
+        // ในที่นี้เราจะเอา generations มากำหนดรอบของ SA
+        this.maxIterations = generations;
+        // เราอาจจะเอา mutation มาปรับเป็น Temp หรือ Cooling Rate ได้ถ้าต้องการ
+        // แต่ตอนนี้ใช้ Default ของ SA ไปก่อน
+    }
+
+    // Interface สำหรับส่งค่ากลับ
+    public interface StepCallback {
+        void onStep(List<int[]> bestPath, int generation, int currentCost, String status);
+    }
+
+    public void setCallback(StepCallback cb) {
+        this.callback = cb;
+    }
+
+    // Class สำหรับ Return ผลลัพธ์สุดท้าย
     public static class Result {
-        public boolean reachedGoal;
-        public int cost;
         public List<int[]> path;
+        public int cost;
         public double timeTaken;
     }
 
-    private class Individual implements Comparable<Individual> {
-        int[] genome;
-        int cost;
-        double fitness;
-        boolean reachedGoal;
-        List<int[]> path;
+    // ==========================================
+    // 3. CORE LOGIC (Simulated Annealing)
+    // ==========================================
 
-        // Constructor for initialization
-        public Individual() {
-            genome = new int[GENOME_LENGTH];
-            path = new ArrayList<>();
-            int currR = START[0], currC = START[1];
-
-            for (int i = 0; i < GENOME_LENGTH; i++) {
-                List<int[]> candidates = new ArrayList<>(); // {distVal, moveIdx}
-
-                for (int m = 0; m < MOVES.length; m++) {
-                    int nr = currR + MOVES[m][0];
-                    int nc = currC + MOVES[m][1];
-                    if (isValid(nr, nc)) {
-                        candidates.add(new int[] { DIST_MAP[nr][nc], m });
-                    }
-                }
-
-                int move = rand.nextInt(4);
-                if (!candidates.isEmpty()) {
-                    // Sort by distance map value (asc)
-                    candidates.sort(Comparator.comparingInt(a -> a[0]));
-                    // 90% follow heatmap, 10% explore
-                    if (rand.nextDouble() < 0.9)
-                        move = candidates.get(0)[1];
-                    else
-                        move = candidates.get(rand.nextInt(candidates.size()))[1];
-
-                    currR += MOVES[move][0];
-                    currC += MOVES[move][1];
-                }
-                genome[i] = move;
-            }
-        }
-
-        // Constructor for offspring
-        public Individual(int[] genes) {
-            this.genome = genes;
-            this.path = new ArrayList<>();
-        }
-
-        public void evaluate() {
-            int r = START[0], c = START[1];
-            cost = 0;
-            path.clear();
-            path.add(new int[] { r, c });
-            Set<String> visited = new HashSet<>();
-            visited.add(r + "," + c);
-            reachedGoal = false;
-
-            for (int move : genome) {
-                int nr = r + MOVES[move][0];
-                int nc = c + MOVES[move][1];
-
-                if (isValid(nr, nc)) {
-                    if (visited.contains(nr + "," + nc))
-                        cost += 50; // Loop penalty
-                    else
-                        cost += GRID[nr][nc];
-
-                    r = nr;
-                    c = nc;
-                    path.add(new int[] { r, c });
-                    visited.add(r + "," + c);
-
-                    if (r == GOAL[0] && c == GOAL[1]) {
-                        reachedGoal = true;
-                        break;
-                    }
-                } else {
-                    continue; // Hit wall
-                }
-            }
-
-            // Calculate Fitness
-            int finalDist = DIST_MAP[r][c];
-            if (reachedGoal)
-                fitness = 1_000_000 + (1_000_000.0 / (cost + 1));
-            else
-                fitness = 50_000.0 / (finalDist + 1);
-        }
-
-        private boolean isValid(int r, int c) {
-            return r >= 0 && r < ROWS && c >= 0 && c < COLS && GRID[r][c] != -1;
-        }
-
-        @Override
-        public int compareTo(Individual o) {
-            return Double.compare(o.fitness, this.fitness); // Descending
-        }
-    }
+    static final int NUM_WAYPOINTS = 12;
+    static final double COOLING_RATE = 0.995;
+    static final double MIN_TEMP = 0.1;
+    static Random random = new Random();
 
     public Result run() {
         long startTime = System.nanoTime();
 
-        List<Individual> pop = new ArrayList<>();
-        for (int i = 0; i < POPULATION_SIZE; i++)
-            pop.add(new Individual());
+        // 1. Initial Solution
+        Solution currentSol = new Solution();
+        currentSol.evaluate();
 
-        Individual bestGlobal = pop.get(0);
+        Solution bestSol = new Solution(currentSol.waypoints);
+        bestSol.totalCost = currentSol.totalCost;
 
-        for (int gen = 0; gen < GENERATIONS; gen++) {
-            for (Individual ind : pop) {
-                ind.evaluate();
-                if (ind.reachedGoal) {
-                    if (!bestGlobal.reachedGoal || ind.cost < bestGlobal.cost)
-                        bestGlobal = ind;
-                } else if (!bestGlobal.reachedGoal && ind.fitness > bestGlobal.fitness) {
-                    bestGlobal = ind;
+        double temp = initialTemp;
+        int iteration = 0;
+
+        // Loop จนกว่าจะครบ Gen หรือ Temp หมด
+        while (temp > MIN_TEMP && iteration < maxIterations) {
+
+            // Loop ย่อยต่ออุณหภูมิ (ลดลงเพื่อให้ GUI อัปเดตไวขึ้น)
+            int iterationsPerTemp = 20;
+
+            for (int i = 0; i < iterationsPerTemp; i++) {
+                // 2. Create Neighbor
+                Solution newSol = new Solution(currentSol.waypoints);
+
+                // Random Move Logic
+                int idx = random.nextInt(NUM_WAYPOINTS);
+                Point oldP = newSol.waypoints.get(idx);
+                int moveRange = (int) (5 + (temp * 0.05));
+                int nr = oldP.r + (random.nextInt(moveRange * 2) - moveRange);
+                int nc = oldP.c + (random.nextInt(moveRange * 2) - moveRange);
+
+                nr = Math.max(0, Math.min(rows - 1, nr));
+                nc = Math.max(0, Math.min(cols - 1, nc));
+
+                // ตรวจสอบว่าจุดใหม่อยู่ในกำแพงหรือไม่ (ถ้าอยู่ในกำแพง
+                // พยายามหาจุดใกล้เคียงที่ว่าง)
+                if (grid[nr][nc] == -1) {
+                    // Logic ง่ายๆ: ถ้าสุ่มโดนกำแพง ให้ยกเลิกการเดินรอบนี้ (เพื่อประหยัด Cost)
+                    // หรือปล่อยไป เพราะ evaluate มี penalty 5000 อยู่แล้ว
+                }
+
+                newSol.waypoints.set(idx, new Point(nr, nc));
+                newSol.evaluate();
+
+                // 3. Accept / Reject
+                int delta = newSol.totalCost - currentSol.totalCost;
+                if (delta < 0 || Math.random() < Math.exp(-delta / temp)) {
+                    currentSol = newSol;
+                    if (currentSol.totalCost < bestSol.totalCost) {
+                        bestSol = new Solution(currentSol.waypoints);
+                        bestSol.totalCost = currentSol.totalCost;
+                    }
                 }
             }
 
-            Collections.sort(pop);
+            temp *= COOLING_RATE;
+            iteration++;
 
-            if (gen % 100 == 0) {
-                if (bestGlobal.reachedGoal)
-                    System.out.printf("  [GA] Gen %d: REACHED! Cost=%d%n", gen, bestGlobal.cost);
-                else
-                    System.out.printf("  [GA] Gen %d: Running...%n", gen);
+            // --- SEND UPDATE TO GUI ---
+            if (callback != null) {
+                // สร้าง Full Path เพื่อส่งไปวาดบนจอ (List<int[]>)
+                List<int[]> visualPath = reconstructPath(bestSol.waypoints);
+                callback.onStep(visualPath, iteration, bestSol.totalCost, String.format("Temp: %.2f", temp));
             }
 
-            // Evolution
-            List<Individual> nextGen = new ArrayList<>();
-            // Elitism
-            for (int i = 0; i < ELITISM_COUNT; i++)
-                nextGen.add(pop.get(i));
-
-            while (nextGen.size() < POPULATION_SIZE) {
-                Individual p1 = pop.get(rand.nextInt(100)); // Tournament select from top 100
-                Individual p2 = pop.get(rand.nextInt(100));
-
-                // Crossover
-                int pt = rand.nextInt(GENOME_LENGTH - 1) + 1;
-                int[] childGenes = new int[GENOME_LENGTH];
-                System.arraycopy(p1.genome, 0, childGenes, 0, pt);
-                System.arraycopy(p2.genome, pt, childGenes, pt, GENOME_LENGTH - pt);
-
-                // Mutation (0.3 rate)
-                if (rand.nextDouble() < 0.3) {
-                    int idx = rand.nextInt(GENOME_LENGTH);
-                    childGenes[idx] = rand.nextInt(4);
-                }
-                nextGen.add(new Individual(childGenes));
+            // ชะลอเวลาเล็กน้อยเพื่อให้ GUI วาดทัน (Optional)
+            try {
+                Thread.sleep(2);
+            } catch (InterruptedException e) {
             }
-            pop = nextGen;
         }
 
-        long endTime = System.nanoTime();
+        // Final Result
         Result res = new Result();
-        res.reachedGoal = bestGlobal.reachedGoal;
-        res.cost = bestGlobal.cost;
-        res.path = bestGlobal.path;
-        res.timeTaken = (endTime - startTime) / 1e9;
+        res.path = reconstructPath(bestSol.waypoints);
+        res.cost = bestSol.totalCost;
+        res.timeTaken = (System.nanoTime() - startTime) / 1_000_000_000.0;
         return res;
+    }
+
+    // ==========================================
+    // 4. HELPER METHODS & CLASSES
+    // ==========================================
+
+    // Helper: สร้างเส้นทางเต็มจาก Waypoints เพื่อส่งให้ GUI วาดเส้น
+    private List<int[]> reconstructPath(List<Point> waypoints) {
+        List<int[]> fullPath = new ArrayList<>();
+        Point current = startPos;
+        List<Point> targets = new ArrayList<>(waypoints);
+        targets.add(endPos);
+
+        for (Point target : targets) {
+            // ใช้ A* หรือ Dijkstra หาเส้นทางระหว่างจุด (ในที่นี้ใช้ A* เพื่อความไวในการวาด)
+            // หรือใช้ฟังก์ชัน runDijkstraPath ที่เขียนเพิ่มด้านล่าง
+            List<Point> segment = getPathBetween(current, target);
+            for (Point p : segment) {
+                fullPath.add(new int[] { p.r, p.c });
+            }
+            if (!segment.isEmpty()) {
+                current = target;
+            }
+        }
+        return fullPath;
+    }
+
+    private List<Point> getPathBetween(Point s, Point e) {
+        // ใช้ Logic Dijkstra เดิม แต่เก็บ Parent เพื่อสร้าง Path
+        PriorityQueue<Node> openSet = new PriorityQueue<>();
+        int[][] minCost = new int[rows][cols];
+        Point[][] parent = new Point[rows][cols]; // เก็บพ่อแม่เพื่อย้อนรอย
+
+        for (int[] row : minCost)
+            Arrays.fill(row, Integer.MAX_VALUE);
+
+        openSet.add(new Node(s, 0));
+        minCost[s.r][s.c] = 0;
+        int[][] dirs = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } };
+
+        while (!openSet.isEmpty()) {
+            Node current = openSet.poll();
+            if (current.p.equals(e)) {
+                // Reconstruct path
+                List<Point> path = new ArrayList<>();
+                Point curr = e;
+                while (curr != null && !curr.equals(s)) {
+                    path.add(curr);
+                    curr = parent[curr.r][curr.c];
+                }
+                path.add(s);
+                Collections.reverse(path);
+                return path;
+            }
+
+            if (current.g > minCost[current.p.r][current.p.c])
+                continue;
+
+            for (int[] d : dirs) {
+                int nr = current.p.r + d[0];
+                int nc = current.p.c + d[1];
+                if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && grid[nr][nc] != -1) {
+                    int newCost = current.g + grid[nr][nc];
+                    if (newCost < minCost[nr][nc]) {
+                        minCost[nr][nc] = newCost;
+                        parent[nr][nc] = current.p;
+                        openSet.add(new Node(new Point(nr, nc), newCost));
+                    }
+                }
+            }
+        }
+        return new ArrayList<>(); // No path
+    }
+
+    // --- Inner Classes ---
+
+    class Solution {
+        List<Point> waypoints = new ArrayList<>();
+        int totalCost = 0;
+
+        public Solution() {
+            for (int i = 0; i < NUM_WAYPOINTS; i++) {
+                // สุ่มจุดเริ่มต้น (พยายามไม่ให้ลงกำแพงตั้งแต่ต้น)
+                int r, c;
+                do {
+                    r = random.nextInt(rows);
+                    c = random.nextInt(cols);
+                } while (grid[r][c] == -1);
+
+                waypoints.add(new Point(r, c));
+            }
+        }
+
+        public Solution(List<Point> wp) {
+            for (Point p : wp)
+                this.waypoints.add(new Point(p.r, p.c));
+        }
+
+        public void evaluate() {
+            int currentCost = 0;
+            Point currentPos = startPos;
+            List<Point> fullRoute = new ArrayList<>(this.waypoints);
+            fullRoute.add(endPos);
+
+            for (Point target : fullRoute) {
+                if (grid[target.r][target.c] == -1) {
+                    currentCost += 5000;
+                } else {
+                    currentCost += runDijkstraCost(currentPos, target);
+                    currentPos = target;
+                }
+            }
+            this.totalCost = currentCost;
+        }
+    }
+
+    // Dijkstra สำหรับหา Cost เท่านั้น (เร็ว)
+    private int runDijkstraCost(Point start, Point end) {
+        if (start.equals(end))
+            return 0;
+        PriorityQueue<Node> openSet = new PriorityQueue<>();
+        int[][] minCost = new int[rows][cols];
+        for (int[] row : minCost)
+            Arrays.fill(row, Integer.MAX_VALUE);
+
+        openSet.add(new Node(start, 0));
+        minCost[start.r][start.c] = 0;
+        int[][] dirs = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } };
+
+        while (!openSet.isEmpty()) {
+            Node current = openSet.poll();
+            if (current.p.equals(end))
+                return current.g;
+            if (current.g > minCost[current.p.r][current.p.c])
+                continue;
+
+            for (int[] d : dirs) {
+                int nr = current.p.r + d[0];
+                int nc = current.p.c + d[1];
+                if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && grid[nr][nc] != -1) {
+                    int newCost = current.g + grid[nr][nc];
+                    if (newCost < minCost[nr][nc]) {
+                        minCost[nr][nc] = newCost;
+                        openSet.add(new Node(new Point(nr, nc), newCost));
+                    }
+                }
+            }
+        }
+        return 100_000; // Path not found
+    }
+
+    // Helper Objects
+    static class Point {
+        int r, c;
+
+        Point(int r, int c) {
+            this.r = r;
+            this.c = c;
+        }
+
+        public boolean equals(Object o) {
+            if (this == o)
+                return true;
+            if (o == null || getClass() != o.getClass())
+                return false;
+            Point p = (Point) o;
+            return r == p.r && c == p.c;
+        }
+
+        public int hashCode() {
+            return Objects.hash(r, c);
+        }
+    }
+
+    static class Node implements Comparable<Node> {
+        Point p;
+        int g;
+
+        Node(Point p, int g) {
+            this.p = p;
+            this.g = g;
+        }
+
+        public int compareTo(Node o) {
+            return Integer.compare(this.g, o.g);
+        }
     }
 }
