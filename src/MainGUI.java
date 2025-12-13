@@ -1,4 +1,3 @@
-
 import javax.swing.*;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
@@ -14,18 +13,27 @@ public class MainGUI extends JFrame {
 
     // --- Components ---
     private MazePanel mazePanel;
-    private JScrollPane mazeScrollPane; // เพื่อรองรับการ Zoom แล้วภาพใหญ่เกินจอ
+    private JScrollPane mazeScrollPane;
     private JTextArea logArea;
     private JLabel statusLabel;
     
     // Control Buttons
     private JButton btnLoad, btnSettings, btnClearLog, btnRunGA, btnStopGA;
     
+    // [NEW] Heuristics Controls (Radio & Checkbox)
+    private JRadioButton rbPureGA;
+    private JRadioButton rbCustomGA;
+    private JCheckBox chkOptShortcut;
+    private JCheckBox chkOptLoopCut;
+    private JCheckBox chkOptBacktrack;
+    private JCheckBox chkOptMemetic;
+
     // Visualization Options (Checkboxes)
     private JCheckBox chkShowWeights;
     private JCheckBox chkOverlayDijkstra;
     private JCheckBox chkOverlayAStar;
-    private JCheckBox chkOverlayGA; // [New]
+    private JCheckBox chkOverlayGA;
+    private JCheckBox chkShowDeadEnds; // [NEW] เปิด/ปิดการโชว์กากบาทแดง
 
     // GA Playback Controls
     private JSlider historySlider;
@@ -44,14 +52,16 @@ public class MainGUI extends JFrame {
     private List<int[]> pathDijkstra = null;
     private List<int[]> pathAStar = null;
     
-    // GA History
+    // GA History (Snapshot)
     private static class GASnapshot {
         List<int[]> path;
+        List<int[]> deadEnds; // [NEW] เก็บรายการจุดตัน
         int gen;
         int cost;
         String status;
-        public GASnapshot(List<int[]> p, int g, int c, String s) {
+        public GASnapshot(List<int[]> p, int g, int c, String s, List<int[]> de) {
             this.path = (p != null) ? new ArrayList<>(p) : null;
+            this.deadEnds = (de != null) ? new ArrayList<>(de) : null;
             this.gen = g;
             this.cost = c;
             this.status = s;
@@ -64,13 +74,13 @@ public class MainGUI extends JFrame {
     private Thread gaThread;
     private volatile boolean isGARunning = false;
 
-    // --- Settings (Feature 7) ---
+    // --- Settings ---
     private int settingPopSize = 200;
     private int settingGenerations = 2000;
     private int settingElitism = 20;
     private double settingMutation = 0.6;
 
-    // --- Zoom (Feature 6) ---
+    // --- Zoom ---
     private double zoomFactor = 1.0;
 
     public MainGUI() {
@@ -80,32 +90,76 @@ public class MainGUI extends JFrame {
         setLayout(new BorderLayout());
 
         // ==========================================
-        // 1. Top Panel: Toolbar
+        // 1. Top Panel: Toolbar & GA Modes
         // ==========================================
-        JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         
+        JPanel topPanel = new JPanel();
+        topPanel.setLayout(new BoxLayout(topPanel, BoxLayout.Y_AXIS));
+        
+        // Row 1: General Controls
+        JPanel row1 = new JPanel(new FlowLayout(FlowLayout.LEFT));
         btnLoad = new JButton("Load Map");
         btnSettings = new JButton("GA Settings");
         btnClearLog = new JButton("Clear Log");
-        
-        // GA Controls
         btnRunGA = new JButton("Run GA");
         btnStopGA = new JButton("Stop GA");
-        btnStopGA.setEnabled(false);
-        btnRunGA.setEnabled(false);
+        
+        row1.add(btnLoad);
+        row1.add(new JSeparator(SwingConstants.VERTICAL));
+        row1.add(btnSettings);
+        row1.add(btnClearLog);
+        row1.add(new JSeparator(SwingConstants.VERTICAL));
+        row1.add(btnRunGA);
+        row1.add(btnStopGA);
+        
+        // Row 2: GA Mode Selection (UI ใหม่)
+        JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        row2.setBorder(BorderFactory.createTitledBorder("Algorithm Mode"));
+        
+        rbPureGA = new JRadioButton("Pure GA (Basic)");
+        rbCustomGA = new JRadioButton("Custom Mode", true); // Default
+        ButtonGroup modeGroup = new ButtonGroup();
+        modeGroup.add(rbPureGA);
+        modeGroup.add(rbCustomGA);
+        
+        chkOptShortcut = new JCheckBox("Shortcut");
+        chkOptLoopCut = new JCheckBox("Loop Cut");
+        chkOptBacktrack = new JCheckBox("Backtrack");
+        chkOptMemetic = new JCheckBox("Memetic (Smooth/Refine)");
+        
+        // Default Checked
+        chkOptShortcut.setSelected(true);
+        chkOptLoopCut.setSelected(true);
+        chkOptBacktrack.setSelected(true);
+        chkOptMemetic.setSelected(true);
+        
+        // Logic Enable/Disable Checkboxes ตามโหมด
+        ActionListener modeListener = e -> {
+            boolean isCustom = rbCustomGA.isSelected();
+            chkOptShortcut.setEnabled(isCustom);
+            chkOptLoopCut.setEnabled(isCustom);
+            chkOptBacktrack.setEnabled(isCustom);
+            chkOptMemetic.setEnabled(isCustom);
+        };
+        rbPureGA.addActionListener(modeListener);
+        rbCustomGA.addActionListener(modeListener);
 
-        topPanel.add(btnLoad);
-        topPanel.add(new JSeparator(SwingConstants.VERTICAL));
-        topPanel.add(btnSettings);
-        topPanel.add(btnClearLog);
-        topPanel.add(new JSeparator(SwingConstants.VERTICAL));
-        topPanel.add(btnRunGA);
-        topPanel.add(btnStopGA);
+        row2.add(rbPureGA);
+        row2.add(Box.createHorizontalStrut(20));
+        row2.add(rbCustomGA);
+        row2.add(new JSeparator(SwingConstants.VERTICAL));
+        row2.add(chkOptShortcut);
+        row2.add(chkOptLoopCut);
+        row2.add(chkOptBacktrack);
+        row2.add(chkOptMemetic);
+
+        topPanel.add(row1);
+        topPanel.add(row2);
 
         add(topPanel, BorderLayout.NORTH);
 
         // ==========================================
-        // 2. Left Panel: Display Options (Feature 4)
+        // 2. Left Panel: Display Options
         // ==========================================
         JPanel leftPanel = new JPanel();
         leftPanel.setLayout(new BoxLayout(leftPanel, BoxLayout.Y_AXIS));
@@ -115,24 +169,28 @@ public class MainGUI extends JFrame {
         chkOverlayDijkstra = new JCheckBox("Dijkstra Path (Purple)");
         chkOverlayAStar = new JCheckBox("A* Path (Orange)");
         chkOverlayGA = new JCheckBox("GA Path (Blue)");
+        chkShowDeadEnds = new JCheckBox("Show Dead Ends (Red X)"); // [NEW]
         
         // Default Selections
         chkShowWeights.setSelected(true);
         chkOverlayDijkstra.setSelected(true);
         chkOverlayAStar.setSelected(true);
         chkOverlayGA.setSelected(true);
+        chkShowDeadEnds.setSelected(true);
 
         ActionListener repaintAction = e -> mazePanel.repaint();
         chkShowWeights.addActionListener(repaintAction);
         chkOverlayDijkstra.addActionListener(repaintAction);
         chkOverlayAStar.addActionListener(repaintAction);
         chkOverlayGA.addActionListener(repaintAction);
+        chkShowDeadEnds.addActionListener(repaintAction);
 
         leftPanel.add(chkShowWeights);
         leftPanel.add(chkOverlayDijkstra);
         leftPanel.add(chkOverlayAStar);
         leftPanel.add(chkOverlayGA);
-        leftPanel.add(Box.createVerticalGlue()); // Push to top
+        leftPanel.add(chkShowDeadEnds);
+        leftPanel.add(Box.createVerticalGlue()); 
 
         add(leftPanel, BorderLayout.WEST);
 
@@ -143,47 +201,29 @@ public class MainGUI extends JFrame {
         mazePanel = new MazePanel();
         mazeScrollPane = new JScrollPane(mazePanel);
         
-        // --- [จุดที่แก้] 1. ระบบ ZOOM (รองรับ macOS Touchpad นุ่มๆ) ---
         mazePanel.addMouseWheelListener(e -> {
-            // ใช้ getPreciseWheelRotation() เพื่อรับค่าละเอียดจาก Trackpad
             double rotation = e.getPreciseWheelRotation();
-
-            // ความไว (Sensitivity) : ปรับเลขนี้ถ้ารู้สึกว่าซูมเร็ว/ช้าไป
-            // 0.05 คือกำลังดีสำหรับ Mac Trackpad
             double sensitivity = 0.01; 
-            
-            // สูตรคำนวณ: ยิ่งรูดนิ้วเร็ว ยิ่งซูมเร็ว (Dynamic Factor)
             double factor = 1.0 + (Math.abs(rotation) * sensitivity);
-
-            if (rotation < 0) {
-                zoomFactor *= factor;
-            } else {
-                zoomFactor /= factor;
-            }
-
-            // Limit Zoom (กันซูมจนมองไม่เห็น หรือใหญ่เกิน)
+            if (rotation < 0) zoomFactor *= factor;
+            else zoomFactor /= factor;
             if (zoomFactor < 0.05) zoomFactor = 0.05;
             if (zoomFactor > 20.0) zoomFactor = 20.0; 
-            
-            mazePanel.revalidate(); // คำนวณขนาดใหม่
-            mazePanel.repaint();    // วาดใหม่
+            mazePanel.revalidate();
+            mazePanel.repaint();
         });
 
-        // --- 2. ระบบ PAN (Click & Drag) ---
         MouseAdapter mouseHandler = new MouseAdapter() {
             private Point origin; 
-
             @Override
             public void mousePressed(MouseEvent e) {
                 origin = new Point(e.getPoint());
                 mazePanel.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR)); 
             }
-
             @Override
             public void mouseReleased(MouseEvent e) {
                 mazePanel.setCursor(Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR)); 
             }
-
             @Override
             public void mouseDragged(MouseEvent e) {
                 if (origin != null) {
@@ -191,11 +231,9 @@ public class MainGUI extends JFrame {
                     if (viewPort != null) {
                         int deltaX = origin.x - e.getX();
                         int deltaY = origin.y - e.getY();
-
                         Rectangle view = viewPort.getViewRect();
                         view.x += deltaX;
                         view.y += deltaY;
-
                         mazePanel.scrollRectToVisible(view);
                     }
                 }
@@ -211,7 +249,7 @@ public class MainGUI extends JFrame {
         // 4. Bottom: Playback Controls (History)
         // ==========================================
         playbackPanel = new JPanel(new BorderLayout());
-        playbackPanel.setBorder(BorderFactory.createTitledBorder("GA History Control"));
+        playbackPanel.setBorder(BorderFactory.createTitledBorder("GA Timeline Control"));
         
         JPanel sliderPanel = new JPanel(new BorderLayout());
         historySlider = new JSlider(0, 0, 0);
@@ -242,7 +280,7 @@ public class MainGUI extends JFrame {
 
         playbackPanel.add(sliderPanel, BorderLayout.NORTH);
         playbackPanel.add(btnControlPanel, BorderLayout.CENTER);
-        playbackPanel.setVisible(false); // Hide initially
+        playbackPanel.setVisible(false);
         
         add(playbackPanel, BorderLayout.SOUTH);
 
@@ -270,20 +308,16 @@ public class MainGUI extends JFrame {
         // ==========================================
         btnLoad.addActionListener(e -> loadMapAction());
         
-        // Feature 1: Clear Log
         btnClearLog.addActionListener(e -> {
             logArea.setText("");
             log("Log Cleared.");
         });
 
-        // Feature 7: Settings Dialog
         btnSettings.addActionListener(e -> showSettingsDialog());
 
-        // Feature 2: Run / Stop GA
         btnRunGA.addActionListener(e -> runGA());
         btnStopGA.addActionListener(e -> stopGA());
 
-        // Slider Listener
         historySlider.addChangeListener(e -> {
             if (!historySlider.getValueIsAdjusting() && !gaHistory.isEmpty()) {
                 showGASnapshot(historySlider.getValue());
@@ -293,7 +327,6 @@ public class MainGUI extends JFrame {
         setVisible(true);
     }
 
-    // --- Feature 7: Settings Dialog ---
     private void showSettingsDialog() {
         JPanel panel = new JPanel(new GridLayout(4, 2, 10, 10));
         JTextField txtPop = new JTextField(String.valueOf(settingPopSize));
@@ -313,14 +346,13 @@ public class MainGUI extends JFrame {
                 settingGenerations = Integer.parseInt(txtGen.getText());
                 settingElitism = Integer.parseInt(txtEli.getText());
                 settingMutation = Double.parseDouble(txtMut.getText());
-                log("Settings Updated: Pop=" + settingPopSize + ", Gen=" + settingGenerations);
+                log("Settings Updated: Pop=" + settingPopSize + ", Gen=" + settingGenerations + ", Mutation Rate=" + settingMutation);
             } catch (Exception ex) {
                 JOptionPane.showMessageDialog(this, "Invalid Input!");
             }
         }
     }
 
-    // --- Feature 3: History Logic ---
     private void jumpHistory(int amount) {
         if (gaHistory.isEmpty()) return;
         int newIdx = currentHistoryIndex + amount;
@@ -334,15 +366,14 @@ public class MainGUI extends JFrame {
         currentHistoryIndex = index;
         GASnapshot snap = gaHistory.get(index);
         
-        // Update View
         mazePanel.setGAPath(snap.path);
+        mazePanel.setDeadEnds(snap.deadEnds); // [NEW] ส่ง Dead Ends ไปวาด
         mazePanel.repaint();
         
-        lblGenCount.setText("Gen: " + snap.gen + " / " + (gaHistory.size()-1));
+        lblGenCount.setText("Gen: " + snap.gen + " / " + (gaHistory.size()));
         statusLabel.setText("GA Cost: " + snap.cost);
     }
 
-    // --- Logic: Run GA ---
     private void runGA() {
         if (isGARunning) return;
         
@@ -357,29 +388,48 @@ public class MainGUI extends JFrame {
 
         log("--------------------------------");
         log("Starting GA...");
-        log("Params: Pop=" + settingPopSize + ", Gen=" + settingGenerations);
+        
+        boolean pureMode = rbPureGA.isSelected();
+        log("Mode: " + (pureMode ? "Pure GA" : "Custom/Memetic"));
+        if (!pureMode) {
+            log("Opts: SC=" + chkOptShortcut.isSelected() + 
+                ", Loop=" + chkOptLoopCut.isSelected() + 
+                ", Back=" + chkOptBacktrack.isSelected() + 
+                ", Memetic=" + chkOptMemetic.isSelected());
+        }
 
         gaThread = new Thread(() -> {
             try {
-                // ส่งค่า Settings เข้าไปใน Constructor (คุณต้องไปแก้ GA.java ให้รับค่าพวกนี้ด้วยนะ)
-                // ถ้ายังไม่แก้ ให้ใช้ Constructor เดิม: new GA(grid, rows, cols, start, goal);
                 GA ga = new GA(grid, rows, cols, start, goal); 
-                
-                // TODO: ถ้าแก้ GA.java แล้ว ให้ใช้บรรทัดล่างนี้แทน
                 ga.setParameters(settingPopSize, settingGenerations, settingElitism, settingMutation);
+                
+                // [NEW] Configure Modes
+                if (pureMode) {
+                    // Pure GA: ปิดทุกอย่าง
+                    ga.setHeuristics(false, false, false);
+                    ga.setMemetic(false);
+                } else {
+                    // Custom: ส่งค่าตาม Checkbox
+                    ga.setHeuristics(
+                        chkOptShortcut.isSelected(),
+                        chkOptLoopCut.isSelected(),
+                        chkOptBacktrack.isSelected()
+                    );
+                    ga.setMemetic(chkOptMemetic.isSelected());
+                }
 
-                ga.setCallback((path, gen, cost, status) -> {
-                    // Feature 2: Stop Check
+                ga.setCallback((path, gen, cost, status, deadEnds) -> { // [MODIFIED] รับ deadEnds
                     if (!isGARunning) {
                         throw new RuntimeException("GA Stopped by User"); 
                     }
 
                     synchronized(gaHistory) {
-                        gaHistory.add(new GASnapshot(path, gen, cost, status));
+                        gaHistory.add(new GASnapshot(path, gen, cost, status, deadEnds));
                     }
                     
                     SwingUtilities.invokeLater(() -> {
                         mazePanel.setGAPath(path);
+                        mazePanel.setDeadEnds(deadEnds); // [NEW] Update Display
                         mazePanel.repaint();
                         lblGenCount.setText("Gen: " + gen);
                         statusLabel.setText("Gen: " + gen + " Cost: " + cost);
@@ -406,7 +456,7 @@ public class MainGUI extends JFrame {
 
     private void stopGA() {
         if (isGARunning) {
-            isGARunning = false; // Flag to stop callback loop
+            isGARunning = false;
             log("Stopping GA...");
         }
     }
@@ -427,12 +477,9 @@ public class MainGUI extends JFrame {
         }
     }
 
-    // --- Feature 5: Auto-Run Dijkstra & A* ---
     private void runAutoSolvers() {
         new Thread(() -> {
             log("Auto-running Dijkstra & A*...");
-            
-            // 1. Dijkstra
             try {
                 Dijkstra dij = new Dijkstra(grid, rows, cols, start, goal);
                 Dijkstra.Result dRes = dij.run();
@@ -440,7 +487,6 @@ public class MainGUI extends JFrame {
                 SwingUtilities.invokeLater(() -> log(" > Dijkstra Done (Cost: " + dRes.cost + ")"));
             } catch (Exception e) { log("Dijkstra Error"); }
 
-            // 2. A*
             try {
                 A_star astar = new A_star(grid, rows, cols, start, goal);
                 A_star.Result aRes = astar.run();
@@ -460,11 +506,11 @@ public class MainGUI extends JFrame {
             currentMapFile = fileChooser.getSelectedFile();
             loadAndParseMap(currentMapFile);
             
-            // Reset Data
             pathDijkstra = null;
             pathAStar = null;
             gaHistory.clear();
             mazePanel.setGAPath(null);
+            mazePanel.setDeadEnds(null); // Clear dead ends
             
             playbackPanel.setVisible(false);
             btnRunGA.setEnabled(true);
@@ -473,7 +519,6 @@ public class MainGUI extends JFrame {
             log("Map Loaded: " + currentMapFile.getName());
             log("Size: " + rows + "x" + cols);
             
-            // Feature 5: Auto Run
             runAutoSolvers();
         }
     }
@@ -533,9 +578,14 @@ public class MainGUI extends JFrame {
     // --- Custom Panel for Drawing (Zoomable) ---
     class MazePanel extends JPanel {
         private List<int[]> gaPath;
+        private List<int[]> deadEnds; // เก็บรายการจุดตัน
 
         public void setGAPath(List<int[]> path) {
             this.gaPath = path;
+        }
+        
+        public void setDeadEnds(List<int[]> deadEnds) {
+            this.deadEnds = deadEnds;
         }
         
         @Override
@@ -555,7 +605,6 @@ public class MainGUI extends JFrame {
             Graphics2D g2 = (Graphics2D) g;
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-            // Apply Zoom
             g2.scale(zoomFactor, zoomFactor);
 
             int cellSize = 40; 
@@ -604,15 +653,36 @@ public class MainGUI extends JFrame {
                 }
             }
 
-            // Feature 4: Overlays
+            // Feature 4: Overlays (วาดเส้นทางต่างๆ)
             if (chkOverlayDijkstra.isSelected() && pathDijkstra != null) {
-                drawPath(g2, pathDijkstra, new Color(155, 89, 182, 120), cellSize, xOffset, yOffset, 10); // Purple
+                drawPath(g2, pathDijkstra, new Color(155, 89, 182, 120), cellSize, xOffset, yOffset, 45); 
             }
             if (chkOverlayAStar.isSelected() && pathAStar != null) {
-                drawPath(g2, pathAStar, new Color(243, 156, 18, 120), cellSize, xOffset, yOffset, 15); // Orange
+                drawPath(g2, pathAStar, new Color(243, 156, 18, 120), cellSize, xOffset, yOffset, 40); 
             }
             if (chkOverlayGA.isSelected() && gaPath != null) {
-                drawPath(g2, gaPath, new Color(52, 152, 219, 200), cellSize, xOffset, yOffset, 7); // Blue
+                drawPath(g2, gaPath, new Color(52, 152, 219, 200), cellSize, xOffset, yOffset, 30); 
+            }
+
+            // [UPDATED] Draw Dead Ends (Blocked Paths) - วาดให้ชัดขึ้น
+            if (chkShowDeadEnds.isSelected() && deadEnds != null && !deadEnds.isEmpty()) {
+                g2.setColor(new Color(255, 0, 0, 200)); // สีแดงสด โปร่งแสงนิดหน่อย
+                g2.setStroke(new BasicStroke(3)); // เส้นหนา 3px
+                
+                for(int[] p : deadEnds) {
+                    int x = xOffset + p[1] * cellSize;
+                    int y = yOffset + p[0] * cellSize;
+                    
+                    // วาดกากบาท (X) เต็มช่อง
+                    int padding = 8;
+                    g2.drawLine(x + padding, y + padding, x + cellSize - padding, y + cellSize - padding);
+                    g2.drawLine(x + padding, y + cellSize - padding, x + cellSize - padding, y + padding);
+                    
+                    // (Optional) วาดกรอบแดงรอบช่องด้วยเพื่อให้เห็นชัด
+                    g2.setStroke(new BasicStroke(1));
+                    g2.drawRect(x + 2, y + 2, cellSize - 4, cellSize - 4);
+                    g2.setStroke(new BasicStroke(3)); // กลับมาหนา
+                }
             }
         }
 
@@ -625,7 +695,6 @@ public class MainGUI extends JFrame {
             int[] yPoints = new int[path.size()];
 
             for (int i = 0; i < path.size(); i++) {
-                // path เก็บ {row, col} -> x=col, y=row
                 xPoints[i] = xOff + path.get(i)[1] * cellSize + cellSize / 2;
                 yPoints[i] = yOff + path.get(i)[0] * cellSize + cellSize / 2;
             }
@@ -633,4 +702,3 @@ public class MainGUI extends JFrame {
         }
     }
 }
-
