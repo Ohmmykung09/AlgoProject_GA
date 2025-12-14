@@ -69,6 +69,9 @@ public class MainGUI extends JFrame {
     private Thread gaThread;
     private volatile boolean isGARunning = false;
     private volatile int currentBestCost = Integer.MAX_VALUE;
+    
+    // [ADDED] ตัวแปรเก็บสถิติที่ดีที่สุดสำหรับการแสดงผลไม่ให้กระพริบ
+    private int globalMinCost = Integer.MAX_VALUE;
 
     private int settingPopSize = 500;
     private int settingGenerations = 1000;
@@ -335,6 +338,7 @@ public class MainGUI extends JFrame {
         historySlider.setEnabled(false);
         
         currentBestCost = Integer.MAX_VALUE; 
+        globalMinCost = Integer.MAX_VALUE; // [MODIFIED] Reset best stat
 
         log("--- GA Started ---");
         boolean pureMode = rbPureGA.isSelected();
@@ -369,7 +373,13 @@ public class MainGUI extends JFrame {
                 ga.setCallback((path, gen, cost, timeElapsed, status, deadEnds, isNewBest) -> {
                     if (!isGARunning) throw new RuntimeException("GA_STOPPED");
 
-                    currentBestCost = cost; 
+                    currentBestCost = cost;
+                    
+                    // [MODIFIED] Check visual improvement
+                    boolean isVisuallyBetter = cost <= globalMinCost;
+                    if (isVisuallyBetter) {
+                        globalMinCost = cost;
+                    }
 
                     synchronized(gaHistory) {
                         gaHistory.add(new GASnapshot(path, gen, cost, timeElapsed, status, deadEnds));
@@ -381,12 +391,20 @@ public class MainGUI extends JFrame {
                                                           gen, cost, timeElapsed, status);
                             log(logMsg);
                         }
-
-                        mazePanel.setGAPath(path);
-                        mazePanel.setDeadEnds(deadEnds);
-                        mazePanel.repaint();
+                        
+                        // Update Gen count always for smooth flow
                         lblGenCount.setText("Gen: " + gen);
-                        statusLabel.setText(String.format("Gen: %d Cost: %d Time: %.2fs", gen, cost, timeElapsed));
+
+                        // [MODIFIED] Update visual only if better or equal
+                        if (isVisuallyBetter) {
+                            mazePanel.setGAPath(path);
+                            mazePanel.setDeadEnds(deadEnds);
+                            mazePanel.repaint();
+                            statusLabel.setText(String.format("Gen: %d Cost: %d Time: %.2fs", gen, cost, timeElapsed));
+                        } else {
+                            // Show current gen/time but keep best cost
+                            statusLabel.setText(String.format("Gen: %d Cost: %d Time: %.2fs", gen, globalMinCost, timeElapsed));
+                        }
                     });
                 });
 

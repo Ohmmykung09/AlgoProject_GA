@@ -99,7 +99,7 @@ public class GA {
             int curR = startPoint[0];
             int curC = startPoint[1];
             cost = 0;
-            double penalty = 0;
+            double penalty =0;
             path.clear();
             currentPathStatus = new int[rows][cols];
             path.add(new int[] { curR, curC });
@@ -137,6 +137,7 @@ public class GA {
                                     currentPathStatus[removedNode[0]][removedNode[1]] = 0; 
                                     cost -= grid[removedNode[0]][removedNode[1]]; 
                                 }
+                                penalty += 10;
                                 curR = nextR; curC = nextC; moved = true; 
                                 break; 
                             }
@@ -176,8 +177,11 @@ public class GA {
                                 cost -= grid[removedNode[0]][removedNode[1]];
                                 currentPathStatus[removedNode[0]][removedNode[1]] = 0; 
                             }
+                            penalty += 20;
                         }
                     } 
+
+
 
 
                     if (curR == goalPoint[0] && curC == goalPoint[1]) reachedGoal = true; 
@@ -193,6 +197,7 @@ public class GA {
                         currentPathStatus[deadNode[0]][deadNode[1]] = 2; 
                         cost -= grid[deadNode[0]][deadNode[1]];
                         cumulativeDeadEnds[deadNode[0]][deadNode[1]] = true;
+                        penalty += 50;
                         int[] prevNode = path.get(path.size() - 1);
                         curR = prevNode[0]; curC = prevNode[1];
                         
@@ -204,12 +209,21 @@ public class GA {
 
                 if (reachedGoal) break;
             }
+
+
+
             if (reachedGoal) {
-                fitness = SCORE_GOAL_REACHED + (1_000_000.0 / (cost + penalty + 1)); 
+                fitness = SCORE_GOAL_REACHED + (SCORE_GOAL_REACHED / (cost + penalty + 1)); 
             } else {
-                double dist = Math.abs(curR - goalPoint[0]) + Math.abs(curC - goalPoint[1]);
-                fitness = 1000.0 / (dist * dist + 1);
+                double distFromStart = Math.abs(curR - startPoint[0]) + Math.abs(curC - startPoint[1]);
+                
+                fitness = distFromStart * distFromStart; 
             }
+
+
+
+
+
         }
 
         private boolean hasWay(int r, int c) {
@@ -321,7 +335,7 @@ public class GA {
             nextGen.add(new Individual(cloneGenome(elite.genome)));
         }
         while (nextGen.size() < POPULATION_SIZE) {
-            if (useRefineChildren && bestGlobal != null && bestGlobal.reachedGoal && rand.nextDouble() < 0.2) {
+            if (useRefineChildren && bestGlobal != null && bestGlobal.reachedGoal && rand.nextDouble() < 0.1) {
                 List<Individual> mutants = createRefinedChildren(bestGlobal, 1);
                 nextGen.addAll(mutants);
                 continue;
