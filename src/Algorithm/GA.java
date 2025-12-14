@@ -3,16 +3,16 @@ package Algorithm;
 import java.util.*;
 
 public class GA {
-    // --- Mode Flags ---
-    private boolean useMemetic = true;      
+    private boolean useSmoothPath = true;
+    private boolean useRefineChildren = true;     
     private boolean useShortcut = true;     
     private boolean useLoopCutting = true;  
     private boolean useBacktracking = true; 
 
     private int POPULATION_SIZE = 500; 
     private int GENERATIONS = 1000;   
-    private int ELITISM_COUNT = 20;   
-    private double MUTATION_RATE = 0.6; 
+    private int ELITISM_COUNT = 50;   
+    private double MUTATION_RATE = 0.05; 
     private double SCORE_GOAL_REACHED = 1_000_000.0;
 
     public static final int UP    = 0;
@@ -21,10 +21,7 @@ public class GA {
     public static final int RIGHT = 3;
 
     private static final int[][] MOVES = { 
-        { -1, 0 }, 
-        { 1, 0 },  
-        { 0, -1 }, 
-        { 0, 1 }   
+        { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 }   
     };
     
     private int[][] grid;
@@ -34,18 +31,15 @@ public class GA {
 
     private int stagnationCount = 0;
     private int currentMaxSteps; 
-    private int optimizationStableCount = 0; 
     private int bestAllTimeCost = Integer.MAX_VALUE;
     
-    // เก็บประวัติ DeadEnd สะสม
     private boolean[][] cumulativeDeadEnds;
-
     private VisualizationCallback callback;
     public int GENOME_LENGTH;
 
-    // --- Configuration Methods ---
-    public void setMemetic(boolean enable) {
-        this.useMemetic = enable;
+    public void setMemeticSettings(boolean useSmooth, boolean useRefine) {
+        this.useSmoothPath = useSmooth;
+        this.useRefineChildren = useRefine;
     }
 
     public void setHeuristics(boolean shortcut, boolean loopCut, boolean backtrack) {
@@ -58,13 +52,10 @@ public class GA {
         this.grid = grid;
         this.rows = height; 
         this.cols = width;   
-        
         this.startPoint = start; 
         this.goalPoint = goal;    
-        
         this.GENOME_LENGTH = 5* (height * width); 
         currentMaxSteps = GENOME_LENGTH;
-        
         this.cumulativeDeadEnds = new boolean[rows][cols];
     }
     
@@ -96,12 +87,9 @@ public class GA {
             for (int i = 0; i < GENOME_LENGTH; i++) {
                 List<Integer> dirs = new ArrayList<>(Arrays.asList(UP, DOWN, LEFT, RIGHT));
                 Collections.shuffle(dirs, rand);
-                for (int p = 0; p < 4; p++) {
-                    genome[i][p] = dirs.get(p);
-                }
+                for (int p = 0; p < 4; p++) { genome[i][p] = dirs.get(p); }
             }
         }
-
         public Individual(int[][] Genes) {
             this.genome = Genes;
             this.path = new ArrayList<>();
@@ -110,66 +98,54 @@ public class GA {
         public void calculateFitness() {
             int curR = startPoint[0];
             int curC = startPoint[1];
-            
             cost = 0;
+            double penalty = 0;
             path.clear();
             currentPathStatus = new int[rows][cols];
-            
             path.add(new int[] { curR, curC });
             currentPathStatus[curR][curC] = 1; 
-            
             reachedGoal = false;
-            int stepLimit = (!reachedGoal && bestAllTimeCost == Integer.MAX_VALUE) ? GENOME_LENGTH : currentMaxSteps; 
+            int stepLimit = 0;
+            if (!reachedGoal && bestAllTimeCost == Integer.MAX_VALUE) {
+                stepLimit = GENOME_LENGTH;
+            }else stepLimit = currentMaxSteps;
 
             for (int step = 0; step < stepLimit; step++) {
                 boolean moved = false;
                 for (int p = 0; p < 4; p++) {
                     int moveIndex = genome[step][p];
-                    
                     int nextR = curR + MOVES[moveIndex][0];
                     int nextC = curC + MOVES[moveIndex][1];
 
                     if (!isValidPosition(nextR, nextC)) continue;
 
-                    // --- 1. ตรวจสอบการเดินชนเส้นทางเดิม ---
                     if (currentPathStatus[nextR][nextC] > 0) {
-                        
-                        // ถ้าเปิด Loop Cutting และเดินชนหางตัวเอง (1) -> ให้ตัดหางทิ้ง
                         if (useLoopCutting && currentPathStatus[nextR][nextC] == 1) {
                             int cutIndex = -1;
                             for (int i = 0; i < path.size(); i++) {
                                 if (path.get(i)[0] == nextR && path.get(i)[1] == nextC) {
-                                    cutIndex = i;
-                                    break;
+                                    cutIndex = i; break;
                                 }
                             }
                             if (cutIndex != -1) {
                                 while (path.size() > cutIndex + 1) {
                                     int[] removedNode = path.remove(path.size() - 1);
-                                    
-                                    // *** จุดสำคัญ 1: ห้ามถมแดงที่นี่! ***
-                                    // แค่คืนค่าพื้นที่ให้เป็น 0 (เดินได้ใหม่) เพราะนี่คือการปรับปรุงเส้นทาง ไม่ใช่ทางตัน
                                     currentPathStatus[removedNode[0]][removedNode[1]] = 0; 
                                     cost -= grid[removedNode[0]][removedNode[1]]; 
                                 }
-                                curR = nextR;
-                                curC = nextC;
-                                moved = true; 
+                                penalty += 5000;
+                                curR = nextR; curC = nextC; moved = true; 
                                 break; 
                             }
                         }
                         continue;
                     }
-
-                    // เดินหน้าปกติ
                     cost += grid[nextR][nextC]; 
-                    curR = nextR;
-                    curC = nextC;
+                    curR = nextR; curC = nextC;
                     currentPathStatus[curR][curC] = 1;
                     path.add(new int[] { curR, curC });
                     moved = true;
 
-                    // --- 2. ตรวจสอบทางลัด (Shortcut) ---
                     if (useShortcut) {
                         int bestShortcutIndex = -1;
                         for (int[] m : MOVES) {
@@ -193,42 +169,30 @@ public class GA {
                                 int[] removedNode = path.remove(removeIndex);
                                 cost -= grid[removedNode[0]][removedNode[1]];
                                 currentPathStatus[removedNode[0]][removedNode[1]] = 0; 
-                                
                             }
+                            penalty += 10000;
                         }
                     } 
-                    
                     if (curR == goalPoint[0] && curC == goalPoint[1]) reachedGoal = true; 
                     break; 
                 }
                 
                 if (useBacktracking && !moved && !reachedGoal) {
                     while (path.size() > 1) {
-                        if (hasWay(curR, curC)) {
-                            break;
-                        }
-
+                        if (hasWay(curR, curC)) break;
                         int[] deadNode = path.remove(path.size() - 1);
-                        
-                        // Mark local (เพื่อให้ตัวมันเองรู้ว่าห้ามเดินกลับไป)
                         currentPathStatus[deadNode[0]][deadNode[1]] = 2; 
                         cost -= grid[deadNode[0]][deadNode[1]];
-                        
-                        // *** จุดสำคัญ 3: ถมแดงที่นี่ที่เดียว! ***
-                        // เพราะการถอยหลังแปลว่าตรงนี้ไปต่อไม่ได้จริงๆ (ตัน)
                         cumulativeDeadEnds[deadNode[0]][deadNode[1]] = true;
-
+                        penalty += 5000;
                         int[] prevNode = path.get(path.size() - 1);
-                        curR = prevNode[0];
-                        curC = prevNode[1];
+                        curR = prevNode[0]; curC = prevNode[1];
                     }
                 }
-                
                 if (reachedGoal) break;
             }
-
             if (reachedGoal) {
-                fitness = SCORE_GOAL_REACHED + (1_000_000.0 / (cost + 1));
+                fitness = SCORE_GOAL_REACHED + (1_000_000.0 / (cost + penalty + 1)); 
             } else {
                 double dist = Math.abs(curR - goalPoint[0]) + Math.abs(curC - goalPoint[1]);
                 fitness = 1000.0 / (dist * dist + 1); 
@@ -240,9 +204,7 @@ public class GA {
                 int nr = r + m[0];
                 int nc = c + m[1];
                 if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && 
-                    grid[nr][nc] != -1 && currentPathStatus[nr][nc] == 0) {
-                    return true;
-                }
+                    grid[nr][nc] != -1 && currentPathStatus[nr][nc] == 0) return true;
             }
             return false;
         }
@@ -250,34 +212,22 @@ public class GA {
         private boolean isValidPosition(int r, int c) {
             return r >= 0 && r < rows && c >= 0 && c < cols && grid[r][c] != -1;
         }
-        
-        // Helper
-        public List<int[]> getDeadEnds() {
-            List<int[]> deadEnds = new ArrayList<>();
-            for(int r=0; r<rows; r++){
-                for(int c=0; c<cols; c++){
-                    if(currentPathStatus[r][c] == 2) {
-                        deadEnds.add(new int[]{r, c});
-                    }
-                }
-            }
-            return deadEnds;
-        }
-        
         @Override
         public int compareTo(Individual other) { return Double.compare(other.fitness, this.fitness); }
     }
 
     public Result run() {
-        
         long startTime = System.nanoTime();
         List<Individual> population = new ArrayList<>();
+        int lastReportedCost = Integer.MAX_VALUE;
         double lastFitness = -1;
         
         for (int i = 0; i < POPULATION_SIZE; i++) population.add(new Individual());
         Individual bestGlobal = population.get(0);
 
         for (int gen = 0; gen < GENERATIONS; gen++) {
+            if (Thread.currentThread().isInterrupted()) break; 
+
             for (Individual ind : population) {
                 ind.calculateFitness();
                 if (ind.reachedGoal) {
@@ -297,85 +247,81 @@ public class GA {
                 lastFitness = bestGlobal.fitness;
             }
             
-            if (gen % 5 == 0 || bestGlobal.reachedGoal) { 
-                
-                List<int[]> displayPath = bestGlobal.path;
-                int displayCost = bestGlobal.cost;
+            List<int[]> displayPath = bestGlobal.path;
+            int displayCost = bestGlobal.cost;
 
-                if (useMemetic && bestGlobal.reachedGoal) {
-                    List<int[]> smoothed = smoothPath(bestGlobal.path);
-                    int optimizedCost = 0;
-                    for (int[] node : smoothed) optimizedCost += grid[node[0]][node[1]]; 
-                    optimizedCost -= grid[startPoint[0]][startPoint[1]]; 
-                    bestGlobal.path = smoothed;
-                    bestGlobal.cost = optimizedCost;
-                    displayPath = smoothed;
-                    displayCost = optimizedCost;
-                }
-
-                if (callback != null) {
-                    String status = bestGlobal.reachedGoal ? "REACHED!" : "SEARCH...";
-                    if (useMemetic && bestGlobal.reachedGoal) status = "OPTIMIZED";
-                    else if (stagnationCount > 10) status = "STAGNANT (" + stagnationCount + ")";
-                    
-                    // ส่ง Dead Ends สะสมออกไปวาด
-                    List<int[]> allDeadEnds = new ArrayList<>();
-                    for(int r=0; r<rows; r++){
-                        for(int c=0; c<cols; c++){
-                            if(cumulativeDeadEnds[r][c]) {
-                                allDeadEnds.add(new int[]{r, c});
-                            }
-                        }
-                    }
-
-                    callback.onUpdate(displayPath, gen + 1, displayCost, status, allDeadEnds);
-                    
-                    try { Thread.sleep(1); } catch (InterruptedException e) {}
-                }
+            if (useSmoothPath && bestGlobal.reachedGoal) {
+                List<int[]> smoothed = smoothPath(bestGlobal.path);
+                int optimizedCost = 0;
+                for (int[] node : smoothed) optimizedCost += grid[node[0]][node[1]]; 
+                optimizedCost -= grid[startPoint[0]][startPoint[1]]; 
+                displayPath = smoothed;
+                displayCost = optimizedCost;
             }
+
+            double currentTimeElapsed = (System.nanoTime() - startTime) / 1e9;
+            boolean isNewBest = displayCost < lastReportedCost;
             
+            if (isNewBest) {
+                lastReportedCost = displayCost;
+            }
+
+            if (callback != null) {
+                String status = bestGlobal.reachedGoal ? "REACHED" : "SEARCHING";
+                if (useSmoothPath && bestGlobal.reachedGoal) status = "SMOOTHED";
+                
+                List<int[]> allDeadEnds = new ArrayList<>();
+                for(int r=0; r<rows; r++){
+                    for(int c=0; c<cols; c++) if(cumulativeDeadEnds[r][c]) allDeadEnds.add(new int[]{r, c});
+                }
+                
+                callback.onUpdate(displayPath, gen + 1, displayCost, currentTimeElapsed, status, allDeadEnds, isNewBest);
+                
+                try { Thread.sleep(1); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            }
             population = createNextGeneration(population, bestGlobal);
         }
 
         long endTime = System.nanoTime();
-
         Result result = new Result();
         result.reachedGoal = bestGlobal.reachedGoal; 
-        result.cost = bestGlobal.cost;
-        result.path = bestGlobal.path;
-        result.timeTaken = (endTime - startTime) / 1e9;
         
+        if (useSmoothPath && bestGlobal.reachedGoal) {
+             List<int[]> smoothed = smoothPath(bestGlobal.path);
+             int optimizedCost = 0;
+             for (int[] node : smoothed) optimizedCost += grid[node[0]][node[1]]; 
+             optimizedCost -= grid[startPoint[0]][startPoint[1]]; 
+             result.cost = optimizedCost;
+             result.path = smoothed;
+        } else {
+             result.cost = bestGlobal.cost;
+             result.path = bestGlobal.path;
+        }
+        result.timeTaken = (endTime - startTime) / 1e9;
         return result;
     }
     
     private List<Individual> createNextGeneration(List<Individual> currentPop, Individual bestGlobal) {
         List<Individual> nextGen = new ArrayList<>();
-        
         for (int i = 0; i < ELITISM_COUNT; i++) {
             Individual elite = currentPop.get(i);
             nextGen.add(new Individual(cloneGenome(elite.genome)));
         }
-        
         while (nextGen.size() < POPULATION_SIZE) {
-            if (useMemetic && bestGlobal != null && bestGlobal.reachedGoal && rand.nextDouble() < 0.2) {
+            if (useRefineChildren && bestGlobal != null && bestGlobal.reachedGoal && rand.nextDouble() < 0.2) {
                 List<Individual> mutants = createRefinedChildren(bestGlobal, 1);
                 nextGen.addAll(mutants);
                 continue;
             }
-            
             double newBloodRate = 0.08;
-            if (stagnationCount > 40) {
-                newBloodRate = 0.4;
-            }
+            if (stagnationCount > 40) newBloodRate = 0.4;
             if (rand.nextDouble() < newBloodRate) {
                 nextGen.add(new Individual()); 
             } else {
                 Individual p1 = currentPop.get(rand.nextInt(currentPop.size()/2));
                 Individual p2 = currentPop.get(rand.nextInt(currentPop.size()/2));
-                
                 int[][] childGenes = Crossover(p1, p2);
                 Mutation(childGenes);
-                
                 nextGen.add(new Individual(childGenes));
             }
         }
@@ -385,12 +331,8 @@ public class GA {
     private int[][] Crossover(Individual p1, Individual p2) {
         int cut = rand.nextInt(GENOME_LENGTH);
         int[][] child = new int[GENOME_LENGTH][4];
-        for(int i=0; i<cut; i++){
-            child[i] = p1.genome[i].clone();
-        }
-        for(int i=cut; i<GENOME_LENGTH; i++){
-            child[i] = p2.genome[i].clone();
-        }
+        for(int i=0; i<cut; i++) child[i] = p1.genome[i].clone();
+        for(int i=cut; i<GENOME_LENGTH; i++) child[i] = p2.genome[i].clone();
         return child;
     }
     
@@ -407,25 +349,20 @@ public class GA {
 
     private List<Individual> createRefinedChildren(Individual bestGlobal, int count) {
         List<Individual> refinedChildren = new ArrayList<>();
-        
         for (int i = 0; i < count; i++) {
             int[][] refinedGenome = cloneGenome(bestGlobal.genome);
-
             int mutationPoint = rand.nextInt(GENOME_LENGTH); 
             int originalMove = refinedGenome[mutationPoint][0];
             int newMove = rand.nextInt(4);
             while (newMove == originalMove) { newMove = rand.nextInt(4); }
-            
             refinedGenome[mutationPoint][0] = newMove;
-            
-            if (rand.nextDouble() < 0.5) { 
+            if (rand.nextDouble() < 0.3) { 
                 for (int k = mutationPoint + 1; k < GENOME_LENGTH; k++) {
                     List<Integer> dirs = Arrays.asList(0, 1, 2, 3);
                     Collections.shuffle(dirs, rand);
                     for(int p=0; p<4; p++) refinedGenome[k][p] = dirs.get(p);
                 }
             }
-
             refinedChildren.add(new Individual(refinedGenome));
         }
         return refinedChildren;
@@ -437,25 +374,19 @@ public class GA {
         return copy;
     }
 
-
     public List<int[]> smoothPath(List<int[]> originalPath) {
         if (originalPath.size() < 3) return originalPath;
-
         List<int[]> smoothedPath = new ArrayList<>();
         smoothedPath.add(originalPath.get(0));
-        
         int currentCheckIndex = 0;
         while (currentCheckIndex < originalPath.size() - 1) {
             boolean foundShortcut = false;
             for (int lookAheadIndex = originalPath.size() - 1; lookAheadIndex > currentCheckIndex + 1; lookAheadIndex--) {
                 int[] startNode = originalPath.get(currentCheckIndex);
                 int[] endNode = originalPath.get(lookAheadIndex);
-                
                 if (canWalkDirectly(startNode, endNode)) {
                     List<int[]> segment = generateDirectPath(startNode, endNode);
-                    for (int i = 1; i < segment.size(); i++) {
-                        smoothedPath.add(segment.get(i));
-                    }
+                    for (int i = 1; i < segment.size(); i++) smoothedPath.add(segment.get(i));
                     currentCheckIndex = lookAheadIndex;
                     foundShortcut = true;
                     break;
@@ -463,9 +394,7 @@ public class GA {
             }
             if (!foundShortcut) {
                 currentCheckIndex++;
-                if (currentCheckIndex < originalPath.size()) {
-                    smoothedPath.add(originalPath.get(currentCheckIndex));
-                }
+                if (currentCheckIndex < originalPath.size()) smoothedPath.add(originalPath.get(currentCheckIndex));
             }
         }
         return smoothedPath;
@@ -474,13 +403,10 @@ public class GA {
     private boolean canWalkDirectly(int[] p1, int[] p2) {
         int r1 = p1[0], c1 = p1[1];
         int r2 = p2[0], c2 = p2[1];
-        
         if (r1 == r2) return isClearPath(r1, c1, r2, c2, true); 
         if (c1 == c2) return isClearPath(r1, c1, r2, c2, false); 
-        
         boolean path1Clear = isClearPath(r1, c1, r2, c1, false) && isClearPath(r2, c1, r2, c2, true);
         boolean path2Clear = isClearPath(r1, c1, r1, c2, true) && isClearPath(r1, c2, r2, c2, false);
-        
         return path1Clear || path2Clear;
     }
 
@@ -504,47 +430,23 @@ public class GA {
     private List<int[]> generateDirectPath(int[] p1, int[] p2) {
         List<int[]> pathSegment = new ArrayList<>();
         pathSegment.add(p1);
-        
         int startR = p1[0], startC = p1[1];
         int targetR = p2[0], targetC = p2[1];
-        
         boolean rowFirstValid = isClearPath(startR, startC, targetR, startC, false) && isClearPath(targetR, startC, targetR, targetC, true);
-
         int curR = startR;
         int curC = startC;
-
         if (rowFirstValid) {
-            while (curR != targetR) {
-                if (curR < targetR) {
-                    curR += 1;
-                }else curR += -1;
-                pathSegment.add(new int[]{curR, curC});
-            }
-            while (curC != targetC) {
-                if (curC < targetC) {
-                    curC += 1;
-                }else curC += -1;
-                pathSegment.add(new int[]{curR, curC});
-            }
+            while (curR != targetR) { if (curR < targetR) curR++; else curR--; pathSegment.add(new int[]{curR, curC}); }
+            while (curC != targetC) { if (curC < targetC) curC++; else curC--; pathSegment.add(new int[]{curR, curC}); }
         } else {
-            while (curC != targetC) {
-                if (curC < targetC) {
-                    curC += 1;
-                }else curC += -1;
-                pathSegment.add(new int[]{curR, curC});
-            }
-            while (curR != targetR) {
-                if (curR < targetR) {
-                    curR += 1;
-                }else curR += -1;
-                pathSegment.add(new int[]{curR, curC});
-            }
+            while (curC != targetC) { if (curC < targetC) curC++; else curC--; pathSegment.add(new int[]{curR, curC}); }
+            while (curR != targetR) { if (curR < targetR) curR++; else curR--; pathSegment.add(new int[]{curR, curC}); }
         }
         return pathSegment;
     }
 
     public interface VisualizationCallback {
-        void onUpdate(List<int[]> path, int gen, int cost, String status, List<int[]> deadEnds);
+        void onUpdate(List<int[]> path, int gen, int cost, double timeElapsed, String status, List<int[]> deadEnds, boolean isNewBest);
     }
     public void setCallback(VisualizationCallback cb) { this.callback = cb; }
 }
