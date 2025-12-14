@@ -14,18 +14,14 @@ public class GABenchmark {
         String filename;
     }
 
-    // ❌ ลบตัวแปร Scanner ตรงนี้ออก เพราะ static method เรียกใช้ไม่ได้
-
     public static void main(String[] args) {
-        // ✅ 1. สร้าง Scanner ที่นี่ (จุดเดียวของโปรแกรม)
         Scanner scanner = new Scanner(System.in);
 
-        // ✅ 2. ส่ง scanner เข้าไปในฟังก์ชัน
         File selectedFile = selectMapFile("MAZE", scanner);
 
         if (selectedFile == null) {
             System.out.println("No file selected or Folder not found. Exiting.");
-            scanner.close(); // ✅ ปิดก่อนจบโปรแกรมกรณี Error
+            scanner.close();
             return;
         }
 
@@ -34,7 +30,7 @@ public class GABenchmark {
 
         if (!mapInfo.success) {
             System.err.println("Failed to parse map file.");
-            scanner.close(); // ✅ ปิดก่อนจบโปรแกรมกรณี Error
+            scanner.close();
             return;
         }
 
@@ -46,7 +42,7 @@ public class GABenchmark {
 
         if (start == null || goal == null) {
             System.err.println("Error: Map file must contain 'S' and 'G' markers.");
-            scanner.close(); // ✅ ปิดก่อนจบโปรแกรมกรณี Error
+            scanner.close();
             return;
         }
 
@@ -63,7 +59,7 @@ public class GABenchmark {
 
         if (!aStarResult.success) {
             System.out.println("\n❌ Failed! This map has no valid path from S to G.");
-            scanner.close(); // ✅ ปิดก่อนจบโปรแกรมกรณี Error
+            scanner.close();
             return;
         }
         System.out.println("Done.");
@@ -84,11 +80,9 @@ public class GABenchmark {
 
         printAnalysis(aStarResult, gaResult);
 
-        // ✅ 3. ปิด Scanner เมื่อจบการทำงานทั้งหมดอย่างสมบูรณ์
         scanner.close();
     }
 
-    // ✅ แก้ไข method ให้รับ Scanner เข้ามา
     private static File selectMapFile(String folderPath, Scanner scanner) {
         File folder = new File(folderPath);
         if (!folder.exists() || !folder.isDirectory()) {
@@ -110,7 +104,6 @@ public class GABenchmark {
         System.out.print("Enter number to select: ");
 
         try {
-            // ใช้ scanner ตัวที่ส่งเข้ามา (ไม่ต้อง new ใหม่)
             int choice = scanner.nextInt();
             if (choice < 1 || choice > files.length)
                 return null;
@@ -119,8 +112,6 @@ public class GABenchmark {
             return null;
         }
     }
-
-    // --- Helper Methods อื่นๆ เหมือนเดิม ---
 
     private static void printAnalysis(A_star.Result optimal, GA.Result heuristic) {
         System.out.println("\n=== COMPARISON RESULTS ===");
@@ -150,8 +141,8 @@ public class GABenchmark {
             dataDir.mkdir();
 
         try (PrintWriter writer = new PrintWriter(new File(filename))) {
-            writer.println("OptimalCost"); // Header
-            writer.println(cost); // Value
+            writer.println("OptimalCost");
+            writer.println(cost);
         } catch (FileNotFoundException e) {
             System.err.println("Could not write Optimal CSV: " + e.getMessage());
         }
