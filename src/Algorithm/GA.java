@@ -1,5 +1,8 @@
 package Algorithm;
 
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.PrintWriter;
 import java.util.*;
 
 public class GA {
@@ -20,6 +23,20 @@ public class GA {
     static final int NUM_WAYPOINTS = 10; // Gene length
     static final int PENALTY_COST = 10000;
     static Random random = new Random();
+
+    public static class GenerationStat {
+        public int generation;
+        public int bestCost;
+        public int worstCost;
+        public double avgCost;
+        public double stdDevCost;
+        public double temperature;
+
+        public String toCSV() {
+            return String.format("%d,%d,%d,%.2f,%.2f,%.2f",
+                    generation, bestCost, worstCost, avgCost, stdDevCost, temperature);
+        }
+    }
 
     public GA(int[][] grid, int rows, int cols, int[] start, int[] goal) {
         this.grid = grid;
@@ -71,7 +88,7 @@ public class GA {
         hallOfFame = bestEver;
 
         double currentTemp = initialTemp;
-
+        List<GenerationStat> history = new ArrayList<>();
         // Main Loop
         for (int gen = 0; gen < maxGenerations; gen++) {
 
@@ -109,6 +126,8 @@ public class GA {
                 hallOfFame.totalCost = currentBest.totalCost;
             }
 
+            calculateAndStoreStats(gen, population, currentTemp, history);
+
             // Cooling
             currentTemp *= coolingRate;
             if (currentTemp < 0.1)
@@ -121,12 +140,17 @@ public class GA {
                         hallOfFame.totalCost);
                 callback.onStep(visualPath, gen, hallOfFame.totalCost, status);
             }
-
-            try {
-                Thread.sleep(2);
-            } catch (InterruptedException e) {
-            }
         }
+
+        File dataDir = new File("Data");
+
+        if (!dataDir.exists()) {
+            dataDir.mkdir();
+        }
+
+        File outputFile = new File(dataDir, "ga_stats.csv");
+
+        exportToCSV(history, outputFile.getPath());
 
         // Final Result
         Result res = new Result();
@@ -134,6 +158,51 @@ public class GA {
         res.cost = hallOfFame.totalCost;
         res.timeTaken = (System.nanoTime() - startTime) / 1_000_000_000.0;
         return res;
+    }
+
+    private void calculateAndStoreStats(int gen, List<Individual> pop, double temp, List<GenerationStat> history) {
+        long sumCost = 0;
+        int minCost = Integer.MAX_VALUE;
+        int maxCost = Integer.MIN_VALUE;
+
+        for (Individual ind : pop) {
+            sumCost += ind.totalCost;
+            if (ind.totalCost < minCost)
+                minCost = ind.totalCost;
+            if (ind.totalCost > maxCost)
+                maxCost = ind.totalCost;
+        }
+
+        double avg = (double) sumCost / pop.size();
+
+        // Calculate StdDev
+        double sumSquaredDiff = 0;
+        for (Individual ind : pop) {
+            sumSquaredDiff += Math.pow(ind.totalCost - avg, 2);
+        }
+        double stdDev = Math.sqrt(sumSquaredDiff / pop.size());
+
+        GenerationStat stat = new GenerationStat();
+        stat.generation = gen;
+        stat.bestCost = minCost;
+        stat.worstCost = maxCost;
+        stat.avgCost = avg;
+        stat.stdDevCost = stdDev;
+        stat.temperature = temp;
+
+        history.add(stat);
+    }
+
+    private void exportToCSV(List<GenerationStat> history, String filename) {
+        try (PrintWriter writer = new PrintWriter(new File(filename))) {
+            writer.println("Generation,BestCost,WorstCost,AvgCost,StdDev,Temperature");
+            for (GenerationStat stat : history) {
+                writer.println(stat.toCSV());
+            }
+            System.out.println(">> Statistics exported to: " + filename);
+        } catch (FileNotFoundException e) {
+            System.err.println("Could not write CSV file: " + e.getMessage());
+        }
     }
 
     // Helper
