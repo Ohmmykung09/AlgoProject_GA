@@ -54,7 +54,7 @@ public class GA {
         this.cols = width;   
         this.startPoint = start; 
         this.goalPoint = goal;    
-        this.GENOME_LENGTH = 5* (height * width); 
+        this.GENOME_LENGTH = 2*(height * width); 
         currentMaxSteps = GENOME_LENGTH;
         this.cumulativeDeadEnds = new boolean[rows][cols];
     }
