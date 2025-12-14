@@ -106,6 +106,9 @@ public class GA {
             currentPathStatus[curR][curC] = 1; 
             reachedGoal = false;
             int stepLimit = 0;
+
+
+
             if (!reachedGoal && bestAllTimeCost == Integer.MAX_VALUE) {
                 stepLimit = GENOME_LENGTH;
             }else stepLimit = currentMaxSteps;
@@ -118,6 +121,7 @@ public class GA {
                     int nextC = curC + MOVES[moveIndex][1];
 
                     if (!isValidPosition(nextR, nextC)) continue;
+
 
                     if (currentPathStatus[nextR][nextC] > 0) {
                         if (useLoopCutting && currentPathStatus[nextR][nextC] == 1) {
@@ -133,13 +137,15 @@ public class GA {
                                     currentPathStatus[removedNode[0]][removedNode[1]] = 0; 
                                     cost -= grid[removedNode[0]][removedNode[1]]; 
                                 }
-                                penalty += 5000;
                                 curR = nextR; curC = nextC; moved = true; 
                                 break; 
                             }
                         }
                         continue;
                     }
+
+
+
                     cost += grid[nextR][nextC]; 
                     curR = nextR; curC = nextC;
                     currentPathStatus[curR][curC] = 1;
@@ -170,13 +176,16 @@ public class GA {
                                 cost -= grid[removedNode[0]][removedNode[1]];
                                 currentPathStatus[removedNode[0]][removedNode[1]] = 0; 
                             }
-                            penalty += 10000;
                         }
                     } 
+
+
                     if (curR == goalPoint[0] && curC == goalPoint[1]) reachedGoal = true; 
                     break; 
                 }
                 
+
+
                 if (useBacktracking && !moved && !reachedGoal) {
                     while (path.size() > 1) {
                         if (hasWay(curR, curC)) break;
@@ -184,18 +193,22 @@ public class GA {
                         currentPathStatus[deadNode[0]][deadNode[1]] = 2; 
                         cost -= grid[deadNode[0]][deadNode[1]];
                         cumulativeDeadEnds[deadNode[0]][deadNode[1]] = true;
-                        penalty += 5000;
                         int[] prevNode = path.get(path.size() - 1);
                         curR = prevNode[0]; curC = prevNode[1];
+                        
                     }
                 }
+
+
+
+
                 if (reachedGoal) break;
             }
             if (reachedGoal) {
                 fitness = SCORE_GOAL_REACHED + (1_000_000.0 / (cost + penalty + 1)); 
             } else {
                 double dist = Math.abs(curR - goalPoint[0]) + Math.abs(curC - goalPoint[1]);
-                fitness = 1000.0 / (dist * dist + 1); 
+                fitness = 1000.0 / (dist * dist + 1);
             }
         }
 
