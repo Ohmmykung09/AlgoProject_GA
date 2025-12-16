@@ -25,7 +25,6 @@ public class MainGUI extends JFrame {
     private JCheckBox chkOptBacktrack;
     
     private JCheckBox chkOptRefineChildren; 
-    private JCheckBox chkOptSmoothPath;    
 
     private JCheckBox chkShowWeights;
     private JCheckBox chkOverlayDijkstra;
@@ -119,13 +118,11 @@ public class MainGUI extends JFrame {
         chkOptBacktrack = new JCheckBox("Backtrack");
         
         chkOptRefineChildren = new JCheckBox("Refine Children");
-        chkOptSmoothPath = new JCheckBox("Smooth Path");
         
         chkOptShortcut.setSelected(true);
         chkOptLoopCut.setSelected(true);
         chkOptBacktrack.setSelected(true);
         chkOptRefineChildren.setSelected(true);
-        chkOptSmoothPath.setSelected(true);
         
         ActionListener modeListener = e -> {
             boolean isCustom = rbCustomGA.isSelected();
@@ -133,7 +130,6 @@ public class MainGUI extends JFrame {
             chkOptLoopCut.setEnabled(isCustom);
             chkOptBacktrack.setEnabled(isCustom);
             chkOptRefineChildren.setEnabled(isCustom);
-            chkOptSmoothPath.setEnabled(isCustom);
         };
         rbPureGA.addActionListener(modeListener);
         rbCustomGA.addActionListener(modeListener);
@@ -147,7 +143,6 @@ public class MainGUI extends JFrame {
         row2.add(chkOptBacktrack);
         row2.add(new JSeparator(SwingConstants.VERTICAL));
         row2.add(chkOptRefineChildren);
-        row2.add(chkOptSmoothPath);
 
         topPanel.add(row1);
         topPanel.add(row2);
@@ -346,8 +341,7 @@ public class MainGUI extends JFrame {
             log("Config: SC=" + chkOptShortcut.isSelected() + 
                 ", Loop=" + chkOptLoopCut.isSelected() + 
                 ", Back=" + chkOptBacktrack.isSelected() + 
-                ", Refine=" + chkOptRefineChildren.isSelected() +
-                ", Smooth=" + chkOptSmoothPath.isSelected());
+                ", Refine=" + chkOptRefineChildren.isSelected());
         }
 
         gaThread = new Thread(() -> {
@@ -357,7 +351,7 @@ public class MainGUI extends JFrame {
                 
                 if (pureMode) {
                     ga.setHeuristics(false, false, false);
-                    ga.setMemeticSettings(false, false);
+                    ga.setMemeticSettings(false);
                 } else {
                     ga.setHeuristics(
                         chkOptShortcut.isSelected(),
@@ -365,7 +359,6 @@ public class MainGUI extends JFrame {
                         chkOptBacktrack.isSelected()
                     );
                     ga.setMemeticSettings(
-                        chkOptSmoothPath.isSelected(),
                         chkOptRefineChildren.isSelected()
                     );
                 }
@@ -392,7 +385,6 @@ public class MainGUI extends JFrame {
                             log(logMsg);
                         }
                         
-                        // Update Gen count always for smooth flow
                         lblGenCount.setText("Gen: " + gen);
 
                         // [MODIFIED] Update visual only if better or equal

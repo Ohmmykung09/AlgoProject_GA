@@ -36,8 +36,7 @@ public class GA {
     public int GENOME_LENGTH;
 
     // --- Config Setters ---
-    public void setMemeticSettings(boolean useSmooth, boolean useRefine) {
-        this.useSmoothPath = useSmooth;
+    public void setMemeticSettings(boolean useRefine) {
         this.useRefineChildren = useRefine;
     }
 
@@ -267,14 +266,6 @@ public class GA {
             }
 
             int displayCost = bestGlobal.cost;
-            if (useSmoothPath && bestGlobal.reachedGoal) {
-                List<int[]> smoothed = smoothPath(bestGlobal.path);
-                int optimizedCost = 0;
-                for (int[] node : smoothed)
-                    optimizedCost += grid[node[0]][node[1]];
-                optimizedCost -= grid[startPoint[0]][startPoint[1]];
-                displayCost = optimizedCost;
-            }
 
             // [NEW] บันทึก History
             result.costHistory.add(displayCost);
@@ -307,19 +298,9 @@ public class GA {
 
         long endTime = System.nanoTime();
         result.reachedGoal = bestGlobal.reachedGoal;
-
-        if (useSmoothPath && bestGlobal.reachedGoal) {
-            List<int[]> smoothed = smoothPath(bestGlobal.path);
-            int optimizedCost = 0;
-            for (int[] node : smoothed)
-                optimizedCost += grid[node[0]][node[1]];
-            optimizedCost -= grid[startPoint[0]][startPoint[1]];
-            result.cost = optimizedCost;
-            result.path = smoothed;
-        } else {
-            result.cost = bestGlobal.cost;
-            result.path = bestGlobal.path;
-        }
+        result.cost = bestGlobal.cost;
+        result.path = bestGlobal.path;
+        
         result.timeTaken = (endTime - startTime) / 1e9;
         return result;
     }
@@ -401,107 +382,6 @@ public class GA {
         for (int i = 0; i < original.length; i++)
             copy[i] = original[i].clone();
         return copy;
-    }
-
-    public List<int[]> smoothPath(List<int[]> originalPath) {
-        if (originalPath.size() < 3)
-            return originalPath;
-        List<int[]> smoothedPath = new ArrayList<>();
-        smoothedPath.add(originalPath.get(0));
-        int currentCheckIndex = 0;
-        while (currentCheckIndex < originalPath.size() - 1) {
-            boolean foundShortcut = false;
-            for (int lookAheadIndex = originalPath.size() - 1; lookAheadIndex > currentCheckIndex
-                    + 1; lookAheadIndex--) {
-                int[] startNode = originalPath.get(currentCheckIndex);
-                int[] endNode = originalPath.get(lookAheadIndex);
-                if (canWalkDirectly(startNode, endNode)) {
-                    List<int[]> segment = generateDirectPath(startNode, endNode);
-                    for (int i = 1; i < segment.size(); i++)
-                        smoothedPath.add(segment.get(i));
-                    currentCheckIndex = lookAheadIndex;
-                    foundShortcut = true;
-                    break;
-                }
-            }
-            if (!foundShortcut) {
-                currentCheckIndex++;
-                if (currentCheckIndex < originalPath.size())
-                    smoothedPath.add(originalPath.get(currentCheckIndex));
-            }
-        }
-        return smoothedPath;
-    }
-
-    private boolean canWalkDirectly(int[] p1, int[] p2) {
-        int r1 = p1[0], c1 = p1[1];
-        int r2 = p2[0], c2 = p2[1];
-        if (r1 == r2)
-            return isClearPath(r1, c1, r2, c2, true);
-        if (c1 == c2)
-            return isClearPath(r1, c1, r2, c2, false);
-        boolean path1Clear = isClearPath(r1, c1, r2, c1, false) && isClearPath(r2, c1, r2, c2, true);
-        boolean path2Clear = isClearPath(r1, c1, r1, c2, true) && isClearPath(r1, c2, r2, c2, false);
-        return path1Clear || path2Clear;
-    }
-
-    private boolean isClearPath(int rStart, int cStart, int rEnd, int cEnd, boolean horizontal) {
-        if (horizontal) {
-            int minC = Math.min(cStart, cEnd);
-            int maxC = Math.max(cStart, cEnd);
-            for (int c = minC; c <= maxC; c++)
-                if (grid[rStart][c] == -1)
-                    return false;
-        } else {
-            int minR = Math.min(rStart, rEnd);
-            int maxR = Math.max(rStart, rEnd);
-            for (int r = minR; r <= maxR; r++)
-                if (grid[r][cStart] == -1)
-                    return false;
-        }
-        return true;
-    }
-
-    private List<int[]> generateDirectPath(int[] p1, int[] p2) {
-        List<int[]> pathSegment = new ArrayList<>();
-        pathSegment.add(p1);
-        int startR = p1[0], startC = p1[1];
-        int targetR = p2[0], targetC = p2[1];
-        boolean rowFirstValid = isClearPath(startR, startC, targetR, startC, false)
-                && isClearPath(targetR, startC, targetR, targetC, true);
-        int curR = startR, curC = startC;
-        if (rowFirstValid) {
-            while (curR != targetR) {
-                if (curR < targetR)
-                    curR++;
-                else
-                    curR--;
-                pathSegment.add(new int[] { curR, curC });
-            }
-            while (curC != targetC) {
-                if (curC < targetC)
-                    curC++;
-                else
-                    curC--;
-                pathSegment.add(new int[] { curR, curC });
-            }
-        } else {
-            while (curC != targetC) {
-                if (curC < targetC)
-                    curC++;
-                else
-                    curC--;
-                pathSegment.add(new int[] { curR, curC });
-            }
-            while (curR != targetR) {
-                if (curR < targetR)
-                    curR++;
-                else
-                    curR--;
-                pathSegment.add(new int[] { curR, curC });
-            }
-        }
-        return pathSegment;
     }
 
     public interface VisualizationCallback {

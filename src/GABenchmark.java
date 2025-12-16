@@ -69,11 +69,11 @@ public class GABenchmark {
         GA ga = new GA(mapInfo.grid, mapInfo.grid.length, mapInfo.grid[0].length, mapInfo.start, mapInfo.goal);
 
         // Apply Configuration
-        ga.setMemeticSettings(config.smooth, config.refine);
+        ga.setMemeticSettings(config.refine);
         ga.setHeuristics(config.shortcut, config.loopcut, config.backtrack);
 
         // Fixed Parameters
-        ga.setParameters(200, 500, 1, 0.1);
+        ga.setParameters(50, 100, 5, 0.01);
         ga.setCallback(null);
 
         GA.Result gaResult = ga.run();
